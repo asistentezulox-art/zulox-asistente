@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1f3a">
+  <meta name="description" content="Asistente comercial, administrativo y operativo de ZULOX controlado por voz.">
+  <title>ZULOX Asistente</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icono-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icono-192.png">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <div id="aviso-conexion" class="aviso-conexion" hidden>
+    Sin conexión. El asistente necesita Internet para entender la voz.
+  </div>
+
+  <header class="cabecera">
+    <div class="marca">
+      <span class="marca-icono" aria-hidden="true">Z</span>
+      <div>
+        <strong>ZULOX</strong>
+        <span>Asistente por voz</span>
+      </div>
+    </div>
+    <div class="cabecera-acciones">
+      <button id="btn-config" class="btn-icono" type="button" title="Configuración" aria-label="Configuración">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4a7.1 7.1 0 0 0-.1-1.2l2-1.5-2-3.4-2.4 1a7 7 0 0 0-2-1.2L16 3h-4l-.5 2.7a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5A7.1 7.1 0 0 0 3 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 2 1.2L8 21h4l.5-2.7a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"/></svg>
+      </button>
+      <button id="btn-salir" class="btn-icono oculto" type="button" title="Cerrar sesión" aria-label="Cerrar sesión">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5v-2H5V5h5V3Zm7.6 4.6L16.2 9l2 2H9v2h9.2l-2 2 1.4 1.4L22 12l-4.4-4.4Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="contenido">
+    <section id="pantalla-inicio" class="pantalla pantalla-centrada">
+      <div class="cargando" aria-label="Cargando"></div>
+      <p>Preparando el asistente…</p>
+    </section>
+
+    <section id="pantalla-config" class="pantalla oculta">
+      <h1>Configuración</h1>
+      <p class="ayuda">Pegá la URL de la API publicada en Apps Script. Termina en <strong>/exec</strong>.</p>
+      <form id="form-config" class="formulario">
+        <label for="api-url">URL de la API</label>
+        <input id="api-url" type="url" inputmode="url" autocomplete="off"
+               placeholder="https://script.google.com/macros/s/…/exec" required>
+        <div class="acciones-formulario">
+          <button type="submit" class="btn-principal">Guardar</button>
+          <button id="btn-probar-api" type="button" class="btn-secundario">Probar conexión</button>
+        </div>
+      </form>
+      <p id="config-mensaje" class="mensaje-config" role="status"></p>
+      <button id="btn-config-volver" type="button" class="btn-texto">Volver</button>
+    </section>
+
+    <section id="pantalla-login" class="pantalla oculta">
+      <h1>Ingresar</h1>
+      <p class="ayuda">Usá la cuenta del proyecto y tu PIN personal.</p>
+      <form id="form-login" class="formulario">
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" inputmode="email" autocomplete="username"
+               placeholder="asistente.zulox@gmail.com" required>
+        <label for="login-pin">PIN</label>
+        <input id="login-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}"
+               autocomplete="current-password" placeholder="••••••" required>
+        <button type="submit" class="btn-principal">Entrar</button>
+      </form>
+      <p id="login-mensaje" class="mensaje-error" role="alert"></p>
+      <button id="btn-login-config" type="button" class="btn-texto">Configurar URL de la API</button>
+    </section>
+
+    <section id="pantalla-principal" class="pantalla oculta">
+      <div class="bienvenida">
+        <p id="saludo" class="saludo">Hola.</p>
+        <p id="estado-api" class="estado-api">Conectado</p>
+      </div>
+
+      <div id="conversacion" class="conversacion" aria-live="polite" aria-atomic="false"></div>
+
+      <article id="tarjeta-resumen" class="tarjeta-resumen oculta" aria-labelledby="titulo-resumen">
+        <h2 id="titulo-resumen">Revisá antes de guardar</h2>
+        <p id="resumen-texto" class="resumen-texto"></p>
+        <div class="acciones-resumen">
+          <button id="btn-confirmar" type="button" class="btn-principal">Confirmar</button>
+          <button id="btn-corregir" type="button" class="btn-secundario">Corregir</button>
+          <button id="btn-cancelar" type="button" class="btn-peligro">Cancelar</button>
+        </div>
+      </article>
+
+      <div class="zona-micro">
+        <button id="btn-micro" class="btn-micro" type="button" aria-label="Hablar" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2Z"/>
+          </svg>
+        </button>
+        <p id="indicador" class="indicador" role="status">Tocá el micrófono y hablá</p>
+        <p id="transcripcion" class="transcripcion" aria-live="polite"></p>
+      </div>
+
+      <form id="form-manual" class="formulario-manual">
+        <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
+        <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
+               placeholder="O escribí la frase acá…">
+        <button type="submit" class="btn-enviar" aria-label="Enviar texto">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 20 18-8L3 4v6l12 2-12 2v6Z"/></svg>
+        </button>
+      </form>
+
+      <p class="pista">Ejemplo: «Agendame una visita con Juan Pérez para el jueves a las diez».</p>
+      <p id="aviso-mic" class="aviso-menor oculto"></p>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <span>ZULOX_ASISTENTE</span>
+    <span id="version-pie">v0.3.0</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
