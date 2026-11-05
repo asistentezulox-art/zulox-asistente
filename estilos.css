@@ -526,3 +526,175 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Agenda (Etapa 4) */
+.btn-agenda {
+  align-self: center;
+  margin: 16px auto 0;
+}
+
+.agenda-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agenda-cabecera h1 { margin-bottom: 4px; }
+
+.agenda-titulo {
+  margin: 0 0 14px;
+  color: var(--gris);
+  font-size: 0.95rem;
+}
+
+.agenda-cabecera .btn-texto { margin-top: 22px; }
+
+.agenda-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.btn-filtro {
+  border: 1px solid var(--azul-borde);
+  border-radius: 999px;
+  padding: 9px 16px;
+  background: rgba(16, 42, 76, 0.7);
+  color: var(--gris);
+  font-weight: 600;
+}
+
+.btn-filtro.activo {
+  border-color: transparent;
+  background: linear-gradient(145deg, var(--celeste), #2f9fe0);
+  color: #041524;
+}
+
+.agenda-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+}
+
+.agenda-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 15px;
+  background: rgba(16, 42, 76, 0.78);
+}
+
+.agenda-hora {
+  min-width: 52px;
+  color: var(--celeste);
+  font-weight: 800;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.agenda-cuerpo { flex: 1; min-width: 0; }
+
+.agenda-cuerpo strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.agenda-cuerpo p {
+  margin: 3px 0 0;
+  color: var(--gris);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.agenda-meta {
+  display: block;
+  margin-top: 6px;
+  color: #6f88a4;
+  font-size: 0.76rem;
+  letter-spacing: 0.03em;
+}
+
+.btn-anular {
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(255, 107, 107, 0.10);
+  color: #ffb3b3;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.agenda-vacio {
+  margin: 20px 0;
+  padding: 22px 16px;
+  border: 1px dashed var(--azul-borde);
+  border-radius: 15px;
+  color: var(--gris);
+  text-align: center;
+}
+
+/* Etapa 4 - Fase 2: reprogramar y opciones */
+
+.agenda-acciones {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-reprogramar {
+  border: 1px solid rgba(76, 195, 255, 0.35);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(76, 195, 255, 0.10);
+  color: var(--celeste-suave);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.opciones-accion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.opcion-accion {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--azul-borde);
+  border-radius: 13px;
+  padding: 12px 14px;
+  background: rgba(16, 42, 76, 0.85);
+  color: var(--blanco);
+  font-size: 0.92rem;
+}
+
+.opcion-accion:active {
+  background: rgba(76, 195, 255, 0.16);
+}
+
+.dialogo {
+  width: min(94vw, 420px);
+  border: 1px solid var(--azul-borde);
+  border-radius: var(--radio);
+  padding: 20px;
+  background: var(--azul-panel);
+  color: var(--blanco);
+  box-shadow: var(--sombra);
+}
+
+.dialogo::backdrop {
+  background: rgba(3, 10, 20, 0.72);
+}
+
+.dialogo h2 {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+}

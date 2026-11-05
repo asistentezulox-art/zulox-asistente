@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.3.0';
+  const VERSION = '0.5.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -26,7 +26,17 @@
     resumen: null,
     idempotencia: '',
     textoCompleto: '',
-    inicio: ''
+    accionPendiente: '',
+    reprogramar: null,
+    anular: null,
+    opciones: [],
+    reprogramarDialogo: null,
+    inicio: '',
+    agendaRango: 'hoy',
+    agendaDesde: '',
+    agendaHasta: '',
+    agendaEtiqueta: '',
+    agendaItems: []
   };
 
   const $ = function (id) { return document.getElementById(id); };
@@ -35,7 +45,8 @@
     inicio: $('pantalla-inicio'),
     config: $('pantalla-config'),
     login: $('pantalla-login'),
-    principal: $('pantalla-principal')
+    principal: $('pantalla-principal'),
+    agenda: $('pantalla-agenda')
   };
 
   function iniciar() {
@@ -84,6 +95,15 @@
     $('btn-confirmar').addEventListener('click', confirmar);
     $('btn-corregir').addEventListener('click', corregir);
     $('btn-cancelar').addEventListener('click', cancelar);
+    $('btn-agenda').addEventListener('click', function () { abrirAgenda('hoy'); });
+    $('btn-agenda-volver').addEventListener('click', function () { irA('principal'); });
+    $('form-reprogramar').addEventListener('submit', guardarReprogramacion);
+    $('btn-reprogramar-cancelar').addEventListener('click', cerrarDialogoReprogramar);
+    document.querySelectorAll('.btn-filtro').forEach(function (boton) {
+      boton.addEventListener('click', function () {
+        abrirAgenda(boton.getAttribute('data-rango'));
+      });
+    });
 
     window.addEventListener('online', actualizarConexion);
     window.addEventListener('offline', actualizarConexion);
@@ -97,7 +117,7 @@
     Object.keys(pantallas).forEach(function (clave) {
       pantallas[clave].classList.toggle('oculto', clave !== nombre);
     });
-    const enPrincipal = nombre === 'principal';
+    const enPrincipal = nombre === 'principal' || nombre === 'agenda';
     $('btn-salir').classList.toggle('oculto', !enPrincipal);
     $('btn-config').classList.toggle('oculto', nombre === 'config');
     window.scrollTo(0, 0);
@@ -242,13 +262,13 @@
     $('saludo').textContent = nombre ? 'Hola, ' + nombre + '.' : 'Hola.';
     $('conversacion').innerHTML = '';
     transcripcion('');
-    agregarMensaje('asistente', '¿Qué querés agendar?');
+    agregarMensaje('asistente', '¿Qué querés agendar o consultar?');
     limpiarBorrador();
     estado.inicio = '';
     setTimeout(function () {
       if (!estado.inicio) {
         estado.inicio = '1';
-        hablar('¿Qué querés agendar?');
+        hablar('¿Qué querés agendar o consultar?');
       }
     }, 500);
   }
@@ -508,14 +528,44 @@
       }
     }
 
+    if (estado.opciones.length) {
+      const elegida = elegirPorTexto(limpio);
+      if (elegida) {
+        agregarMensaje('usuario', limpio);
+        procesarOpcion(elegida);
+        return;
+      }
+      limpiarOpciones();
+    }
+
     agregarMensaje('usuario', limpio);
     estado.textoCompleto = (estado.textoCompleto ? estado.textoCompleto + ' ' : '') + limpio;
     estado.ocupado = true;
     indicador('Interpretando…');
     $('btn-micro').disabled = true;
 
-    api('voz.interpretar', { texto: limpio, borrador: estado.borrador })
+    api('voz.interpretar', {
+      texto: limpio,
+      borrador: estado.borrador,
+      reprogramar: estado.reprogramar
+    })
       .then(function (respuesta) {
+        if (respuesta.intencion === 'CONSULTAR' && respuesta.soportado && respuesta.rango) {
+          limpiarBorrador();
+          abrirAgendaRango(respuesta.rango);
+          return;
+        }
+
+        if (respuesta.intencion === 'REPROGRAMAR') {
+          manejarRespuestaReprogramar(respuesta);
+          return;
+        }
+
+        if (respuesta.intencion === 'ANULAR') {
+          manejarRespuestaAnular(respuesta);
+          return;
+        }
+
         if (!respuesta.soportado) {
           agregarMensaje('asistente', respuesta.mensaje);
           limpiarBorrador();
@@ -567,15 +617,183 @@
   function limpiarBorrador() {
     estado.borrador = null;
     estado.textoCompleto = '';
+    estado.reprogramar = null;
+    estado.anular = null;
+    estado.accionPendiente = '';
+    limpiarOpciones();
     cerrarResumen();
   }
 
+  function deshabilitarResumen(deshabilitar) {
+    ['btn-confirmar', 'btn-corregir', 'btn-cancelar'].forEach(function (id) {
+      $(id).disabled = !!deshabilitar;
+    });
+  }
+
+  function manejarRespuestaReprogramar(respuesta) {
+    if (respuesta.opciones && respuesta.opciones.length) {
+      mostrarOpciones('reprogramar', respuesta.opciones);
+      agregarMensaje('asistente', respuesta.pregunta);
+      indicador(respuesta.pregunta);
+      hablar(respuesta.pregunta);
+      return;
+    }
+
+    if (respuesta.sin_resultados) {
+      agregarMensaje('asistente', respuesta.mensaje);
+      indicador(respuesta.mensaje);
+      hablar(respuesta.mensaje);
+      return;
+    }
+
+    if (respuesta.faltantes && respuesta.faltantes.length) {
+      if (respuesta.datos && respuesta.datos.actividad_id) {
+        estado.reprogramar = respuesta.datos;
+      }
+      cerrarResumen();
+      agregarMensaje('asistente', respuesta.pregunta);
+      indicador(respuesta.pregunta);
+      setTimeout(function () { hablar(respuesta.pregunta, iniciarEscucha); }, 0);
+      return;
+    }
+
+    estado.reprogramar = respuesta.datos;
+    estado.accionPendiente = 'reprogramar';
+    estado.resumen = { resumen: respuesta.resumen };
+    estado.idempotencia = nuevaClave();
+    mostrarResumen(respuesta.resumen);
+    agregarMensaje('asistente', 'Revisá el cambio. ¿Confirmás?');
+    indicador('Decí «sí» o tocá Confirmar');
+    setTimeout(function () {
+      hablar(respuesta.resumen + ' ¿Confirmás?', iniciarEscucha);
+    }, 0);
+  }
+
+  function manejarRespuestaAnular(respuesta) {
+    if (respuesta.opciones && respuesta.opciones.length) {
+      mostrarOpciones('anular', respuesta.opciones);
+      agregarMensaje('asistente', respuesta.pregunta);
+      indicador(respuesta.pregunta);
+      hablar(respuesta.pregunta);
+      return;
+    }
+
+    if (respuesta.sin_resultados) {
+      agregarMensaje('asistente', respuesta.mensaje);
+      indicador(respuesta.mensaje);
+      hablar(respuesta.mensaje);
+      return;
+    }
+
+    if (respuesta.faltantes && respuesta.faltantes.length) {
+      agregarMensaje('asistente', respuesta.pregunta);
+      indicador(respuesta.pregunta);
+      hablar(respuesta.pregunta);
+      return;
+    }
+
+    estado.anular = respuesta.datos;
+    estado.accionPendiente = 'anular';
+    estado.resumen = { resumen: respuesta.resumen };
+    mostrarResumen(respuesta.resumen);
+    agregarMensaje('asistente', 'Revisá antes de anular. ¿Confirmás?');
+    indicador('Decí «sí» o tocá Confirmar');
+    setTimeout(function () {
+      hablar(respuesta.resumen + ' ¿Confirmás?', iniciarEscucha);
+    }, 0);
+  }
+
+  function mostrarOpciones(tipo, opciones) {
+    const caja = $('opciones-accion');
+    caja.innerHTML = '';
+    estado.opciones = opciones.map(function (opcion) {
+      return Object.assign({ _tipo: tipo }, opcion);
+    });
+
+    estado.opciones.forEach(function (opcion) {
+      const boton = document.createElement('button');
+      boton.type = 'button';
+      boton.className = 'opcion-accion';
+      boton.textContent = descripcionOpcion(opcion);
+      boton.addEventListener('click', function () { procesarOpcion(opcion); });
+      caja.appendChild(boton);
+    });
+    caja.classList.remove('oculto');
+  }
+
+  function limpiarOpciones() {
+    estado.opciones = [];
+    const caja = $('opciones-accion');
+    if (!caja) return;
+    caja.innerHTML = '';
+    caja.classList.add('oculto');
+  }
+
+  function descripcionOpcion(opcion) {
+    return fechaCorta(opcion.fecha) + ' ' + (opcion.hora || '--:--') +
+      ' · ' + tipoLegible(opcion.tipo) +
+      (opcion.cliente_nombre ? ' · ' + opcion.cliente_nombre : '') +
+      (opcion.motivo ? ' · ' + opcion.motivo : '');
+  }
+
+  function elegirPorTexto(texto) {
+    const limpio = normalizar(texto);
+    if (/^(la )?(primera|1)$/.test(limpio)) return estado.opciones[0];
+    if (/^(la )?(segunda|2)$/.test(limpio)) return estado.opciones[1];
+    if (/^(la )?(tercera|3)$/.test(limpio)) return estado.opciones[2];
+
+    const coincidencias = estado.opciones.filter(function (opcion) {
+      const nombre = normalizar(opcion.cliente_nombre || '');
+      const motivo = normalizar(opcion.motivo || '');
+      if (nombre && limpio.indexOf(nombre) !== -1) return true;
+      if (motivo && limpio.indexOf(motivo) !== -1) return true;
+      const palabras = nombre.split(' ').filter(function (p) { return p.length >= 3; });
+      return palabras.some(function (p) { return limpio.indexOf(p) !== -1; });
+    });
+    return coincidencias.length === 1 ? coincidencias[0] : null;
+  }
+
+  function procesarOpcion(opcion) {
+    if (!opcion) return;
+    const tipo = opcion._tipo || 'reprogramar';
+    limpiarOpciones();
+
+    if (tipo === 'anular') {
+      estado.anular = opcion;
+      estado.accionPendiente = 'anular';
+      const resumen = 'Anular ' + tipoLegible(opcion.tipo) +
+        (opcion.cliente_nombre ? ' con ' + opcion.cliente_nombre : '') +
+        ' del ' + fechaCorta(opcion.fecha) + ' a las ' + (opcion.hora || '--:--') +
+        '. Queda cancelada, no se borra.';
+      estado.resumen = { resumen: resumen };
+      mostrarResumen(resumen);
+      agregarMensaje('asistente', 'Revisá antes de anular. ¿Confirmás?');
+      indicador('Decí «sí» o tocá Confirmar');
+      hablar(resumen + ' ¿Confirmás?', iniciarEscucha);
+      return;
+    }
+
+    estado.reprogramar = opcion;
+    agregarMensaje('asistente', '¿Para qué fecha y hora la reprogramo?');
+    indicador('Decí la nueva fecha y hora');
+    hablar('¿Para qué fecha y hora la reprogramo?', iniciarEscucha);
+  }
+
   function confirmar() {
-    if (!estado.resumen || !estado.borrador || estado.ocupado) return;
+    if (!estado.resumen || estado.ocupado) return;
+
+    if (estado.accionPendiente === 'reprogramar') {
+      confirmarReprogramacion();
+      return;
+    }
+    if (estado.accionPendiente === 'anular') {
+      confirmarAnulacion();
+      return;
+    }
+    if (!estado.borrador) return;
+
     estado.ocupado = true;
-    $('btn-confirmar').disabled = true;
-    $('btn-corregir').disabled = true;
-    $('btn-cancelar').disabled = true;
+    deshabilitarResumen(true);
     indicador('Guardando…');
 
     const resumen = estado.resumen.resumen;
@@ -606,8 +824,94 @@
       });
   }
 
+  function confirmarReprogramacion() {
+    const datos = estado.reprogramar;
+    if (!datos || estado.ocupado) return;
+
+    estado.ocupado = true;
+    deshabilitarResumen(true);
+    indicador('Guardando cambio…');
+
+    api('actividad.reprogramar', {
+      actividad_id: datos.actividad_id,
+      fecha: datos.fecha,
+      hora: datos.hora,
+      motivo: 'Reprogramada por voz',
+      origen: 'VOZ',
+      idempotencia: estado.idempotencia
+    })
+      .then(function (resultado) {
+        const mensaje = resultado.repetido
+          ? 'Ese cambio ya estaba guardado.'
+          : 'Listo. La actividad quedó para el ' + fechaCorta(resultado.fecha) +
+            ' a las ' + resultado.hora + '.';
+        agregarMensaje('sistema', mensaje);
+        hablar(mensaje);
+        limpiarBorrador();
+        if (estado.agendaDesde) {
+          cargarAgenda(estado.agendaDesde, estado.agendaHasta, estado.agendaEtiqueta, false);
+        }
+      })
+      .catch(function (error) { manejarError(error); })
+      .finally(function () {
+        estado.ocupado = false;
+        deshabilitarResumen(false);
+      });
+  }
+
+  function confirmarAnulacion() {
+    const datos = estado.anular;
+    if (!datos || estado.ocupado) return;
+
+    estado.ocupado = true;
+    deshabilitarResumen(true);
+    indicador('Anulando…');
+
+    api('actividad.anular', {
+      actividad_id: datos.actividad_id,
+      motivo: 'Anulada por voz'
+    })
+      .then(function () {
+        const mensaje = 'Listo. La actividad quedó cancelada.';
+        agregarMensaje('sistema', mensaje);
+        hablar(mensaje);
+        limpiarBorrador();
+        if (estado.agendaDesde) {
+          cargarAgenda(estado.agendaDesde, estado.agendaHasta, estado.agendaEtiqueta, false);
+        }
+      })
+      .catch(function (error) { manejarError(error); })
+      .finally(function () {
+        estado.ocupado = false;
+        deshabilitarResumen(false);
+      });
+  }
+
   function corregir() {
     if (estado.ocupado) return;
+
+    if (estado.accionPendiente === 'reprogramar') {
+      estado.resumen = null;
+      estado.idempotencia = '';
+      cerrarResumen();
+      estado.accionPendiente = '';
+      agregarMensaje('asistente', '¿Para qué fecha y hora la reprogramo?');
+      indicador('Decí la nueva fecha y hora');
+      hablar('¿Para qué fecha y hora la reprogramo?', iniciarEscucha);
+      return;
+    }
+
+    if (estado.accionPendiente === 'anular') {
+      estado.anular = null;
+      estado.accionPendiente = '';
+      estado.resumen = null;
+      cerrarResumen();
+      agregarMensaje('asistente', '¿Cuál querés anular?');
+      indicador('Decime cuál querés anular');
+      hablar('¿Cuál querés anular?', iniciarEscucha);
+      return;
+    }
+
     cerrarResumen();
     transcripcion('');
     indicador('Decime qué querés corregir');
@@ -620,6 +924,271 @@
     agregarMensaje('sistema', 'Cancelado. No se guardó nada.');
     indicador('Tocá el micrófono y hablá');
     hablar('Listo, cancelado.');
+  }
+
+  // -------------------------------------------------------------------------
+  // Agenda
+  // -------------------------------------------------------------------------
+
+  function abrirAgenda(rango) {
+    estado.agendaRango = rango || 'hoy';
+    const hoy = fechaISO(new Date());
+    let desde = hoy;
+    let hasta = hoy;
+    let etiqueta = 'hoy';
+
+    if (estado.agendaRango === 'manana') {
+      desde = sumarDiasISO(hoy, 1);
+      hasta = desde;
+      etiqueta = 'mañana';
+    } else if (estado.agendaRango === 'semana') {
+      hasta = sumarDiasISO(hoy, 6);
+      etiqueta = 'esta semana';
+    }
+
+    document.querySelectorAll('.btn-filtro').forEach(function (boton) {
+      boton.classList.toggle('activo', boton.getAttribute('data-rango') === estado.agendaRango);
+    });
+
+    irA('agenda');
+    cargarAgenda(desde, hasta, etiqueta, true);
+  }
+
+  function abrirAgendaRango(rango) {
+    estado.agendaRango = '';
+    document.querySelectorAll('.btn-filtro').forEach(function (boton) {
+      boton.classList.remove('activo');
+    });
+    irA('agenda');
+    cargarAgenda(rango.desde, rango.hasta, rango.etiqueta, true);
+  }
+
+  function cargarAgenda(desde, hasta, etiqueta, hablarResumen) {
+    estado.agendaDesde = desde;
+    estado.agendaHasta = hasta;
+    estado.agendaEtiqueta = etiqueta;
+    estado.agendaItems = [];
+
+    $('agenda-titulo').textContent = 'Actividades para ' + etiqueta;
+    $('agenda-mensaje').textContent = 'Cargando…';
+    $('agenda-mensaje').classList.remove('ok');
+    $('agenda-lista').innerHTML = '';
+
+    api('actividad.listar', { desde: desde, hasta: hasta })
+      .then(function (items) {
+        estado.agendaItems = items || [];
+        $('agenda-mensaje').textContent = '';
+        renderizarAgenda(estado.agendaItems, etiqueta);
+        if (hablarResumen) hablar(resumenAgenda(estado.agendaItems, etiqueta));
+      })
+      .catch(function (error) {
+        if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+          manejarError(error);
+          return;
+        }
+        $('agenda-mensaje').textContent = error.message;
+        hablar('No pude cargar la agenda. ' + error.message);
+      });
+  }
+
+  function renderizarAgenda(items, etiqueta) {
+    const lista = $('agenda-lista');
+    lista.innerHTML = '';
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'No tenés actividades para ' + etiqueta + '.';
+      lista.appendChild(vacio);
+      return;
+    }
+
+    items.forEach(function (actividad) {
+      const tarjeta = document.createElement('article');
+      tarjeta.className = 'agenda-item';
+
+      const hora = document.createElement('div');
+      hora.className = 'agenda-hora';
+      hora.textContent = actividad.hora || '--:--';
+
+      const cuerpo = document.createElement('div');
+      cuerpo.className = 'agenda-cuerpo';
+
+      const titulo = document.createElement('strong');
+      titulo.textContent = tipoLegible(actividad.tipo);
+
+      const detalle = document.createElement('p');
+      detalle.textContent = actividad.cliente_nombre
+        ? actividad.cliente_nombre + ' · ' + (actividad.motivo || '')
+        : (actividad.motivo || 'Sin detalle');
+
+      const meta = document.createElement('span');
+      meta.className = 'agenda-meta';
+      meta.textContent = fechaCorta(actividad.fecha) + ' · ' + (actividad.estado || '');
+
+      cuerpo.appendChild(titulo);
+      cuerpo.appendChild(detalle);
+      cuerpo.appendChild(meta);
+
+      const acciones = document.createElement('div');
+      acciones.className = 'agenda-acciones';
+
+      const reprogramar = document.createElement('button');
+      reprogramar.type = 'button';
+      reprogramar.className = 'btn-reprogramar';
+      reprogramar.textContent = 'Reprogramar';
+      reprogramar.addEventListener('click', function () { abrirDialogoReprogramar(actividad); });
+
+      const anular = document.createElement('button');
+      anular.type = 'button';
+      anular.className = 'btn-anular';
+      anular.textContent = 'Anular';
+      anular.addEventListener('click', function () { anularDesdeAgenda(actividad); });
+
+      acciones.appendChild(reprogramar);
+      acciones.appendChild(anular);
+
+      tarjeta.appendChild(hora);
+      tarjeta.appendChild(cuerpo);
+      tarjeta.appendChild(acciones);
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  function abrirDialogoReprogramar(actividad) {
+    estado.reprogramarDialogo = actividad;
+    const detalle = tipoLegible(actividad.tipo) +
+      (actividad.cliente_nombre ? ' con ' + actividad.cliente_nombre : '') +
+      (actividad.motivo ? ' · ' + actividad.motivo : '');
+    $('reprogramar-detalle').textContent = detalle;
+    $('reprogramar-fecha').value = actividad.fecha || fechaISO(new Date());
+    $('reprogramar-hora').value = actividad.hora || '09:00';
+
+    const dialogo = $('dialogo-reprogramar');
+    if (dialogo.showModal) {
+      dialogo.showModal();
+    } else {
+      dialogo.setAttribute('open', 'open');
+    }
+  }
+
+  function cerrarDialogoReprogramar() {
+    const dialogo = $('dialogo-reprogramar');
+    if (dialogo.close) {
+      dialogo.close();
+    } else {
+      dialogo.removeAttribute('open');
+    }
+  }
+
+  async function guardarReprogramacion(evento) {
+    evento.preventDefault();
+    const actividad = estado.reprogramarDialogo;
+    if (!actividad) return;
+
+    const fecha = $('reprogramar-fecha').value;
+    const hora = $('reprogramar-hora').value;
+    if (!fecha || !hora) {
+      window.alert('Completá la fecha y la hora.');
+      return;
+    }
+
+    const boton = $('form-reprogramar').querySelector('button[type="submit"]');
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      const resultado = await api('actividad.reprogramar', {
+        actividad_id: actividad.actividad_id,
+        fecha: fecha,
+        hora: hora,
+        motivo: 'Reprogramada desde la agenda',
+        origen: 'MANUAL'
+      });
+      cerrarDialogoReprogramar();
+      const mensaje = 'Actividad reprogramada para el ' +
+        fechaCorta(resultado.fecha) + ' a las ' + resultado.hora + '.';
+      agregarMensaje('sistema', mensaje);
+      hablar('Listo. La actividad quedó reprogramada.');
+      if (estado.agendaDesde) {
+        cargarAgenda(estado.agendaDesde, estado.agendaHasta, estado.agendaEtiqueta, false);
+      }
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar cambio';
+    }
+  }
+
+  function anularDesdeAgenda(actividad) {
+    const referencia = actividad.motivo || actividad.actividad_id;
+    const seguro = window.confirm('¿Anular «' + referencia + '»?\n\n' +
+      'No se borra: queda marcada como cancelada.');
+    if (!seguro) return;
+
+    api('actividad.anular', {
+      actividad_id: actividad.actividad_id,
+      motivo: 'Anulada desde la agenda'
+    })
+      .then(function () {
+        agregarMensaje('sistema', 'Actividad anulada.');
+        hablar('Actividad anulada.');
+        if (estado.agendaDesde) {
+          cargarAgenda(estado.agendaDesde, estado.agendaHasta, estado.agendaEtiqueta, false);
+        } else {
+          abrirAgenda('hoy');
+        }
+      })
+      .catch(function (error) {
+        $('agenda-mensaje').textContent = error.message;
+        hablar('No pude anular la actividad. ' + error.message);
+      });
+  }
+
+  function resumenAgenda(items, etiqueta) {
+    if (!items.length) return 'No tenés actividades para ' + etiqueta + '.';
+
+    const partes = items.slice(0, 3).map(function (actividad) {
+      return (actividad.hora || 'sin hora') + ' ' + tipoLegible(actividad.tipo) +
+        (actividad.cliente_nombre ? ' con ' + actividad.cliente_nombre : '');
+    });
+
+    return 'Tenés ' + items.length + (items.length === 1 ? ' actividad' : ' actividades') +
+      ' para ' + etiqueta + ': ' + partes.join('; ') +
+      (items.length > 3 ? '. Hay más en la lista.' : '.');
+  }
+
+  function tipoLegible(tipo) {
+    const nombres = {
+      VISITA: 'Visita',
+      REUNION: 'Reunión',
+      LLAMADA: 'Llamada',
+      INSPECCION: 'Inspección',
+      PRESUPUESTO: 'Presupuesto',
+      COMPRA: 'Compra',
+      COBRO: 'Cobro'
+    };
+    return nombres[String(tipo || '').toUpperCase()] || String(tipo || 'Actividad');
+  }
+
+  function fechaISO(fecha) {
+    return fecha.getFullYear() + '-' + dos(fecha.getMonth() + 1) + '-' + dos(fecha.getDate());
+  }
+
+  function sumarDiasISO(iso, dias) {
+    const partes = String(iso).split('-').map(Number);
+    return fechaISO(new Date(partes[0], partes[1] - 1, partes[2] + dias));
+  }
+
+  function fechaCorta(iso) {
+    const partes = String(iso || '').split('-');
+    if (partes.length !== 3) return String(iso || '');
+    return partes[2] + '/' + partes[1] + '/' + partes[0];
+  }
+
+  function dos(numero) {
+    return String(numero).padStart(2, '0');
   }
 
   function manejarError(error) {

@@ -80,6 +80,8 @@
 
       <div id="conversacion" class="conversacion" aria-live="polite" aria-atomic="false"></div>
 
+      <div id="opciones-accion" class="opciones-accion oculto" aria-live="polite"></div>
+
       <article id="tarjeta-resumen" class="tarjeta-resumen oculta" aria-labelledby="titulo-resumen">
         <h2 id="titulo-resumen">Revisá antes de guardar</h2>
         <p id="resumen-texto" class="resumen-texto"></p>
@@ -100,6 +102,10 @@
         <p id="transcripcion" class="transcripcion" aria-live="polite"></p>
       </div>
 
+      <button id="btn-agenda" type="button" class="btn-secundario btn-agenda">
+        Ver mi agenda
+      </button>
+
       <form id="form-manual" class="formulario-manual">
         <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
         <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
@@ -112,11 +118,45 @@
       <p class="pista">Ejemplo: «Agendame una visita con Juan Pérez para el jueves a las diez».</p>
       <p id="aviso-mic" class="aviso-menor oculto"></p>
     </section>
+
+    <section id="pantalla-agenda" class="pantalla oculta">
+      <div class="agenda-cabecera">
+        <div>
+          <h1>Mi agenda</h1>
+          <p id="agenda-titulo" class="agenda-titulo">Cargando…</p>
+        </div>
+        <button id="btn-agenda-volver" type="button" class="btn-texto">Volver</button>
+      </div>
+
+      <div class="agenda-filtros" role="group" aria-label="Rango de la agenda">
+        <button type="button" class="btn-filtro activo" data-rango="hoy">Hoy</button>
+        <button type="button" class="btn-filtro" data-rango="manana">Mañana</button>
+        <button type="button" class="btn-filtro" data-rango="semana">Semana</button>
+      </div>
+
+      <p id="agenda-mensaje" class="mensaje-config" role="status"></p>
+      <div id="agenda-lista" class="agenda-lista" aria-live="polite"></div>
+    </section>
   </main>
+
+  <dialog id="dialogo-reprogramar" class="dialogo">
+    <form id="form-reprogramar" class="formulario">
+      <h2>Reprogramar actividad</h2>
+      <p id="reprogramar-detalle" class="ayuda"></p>
+      <label for="reprogramar-fecha">Nueva fecha</label>
+      <input id="reprogramar-fecha" type="date" required>
+      <label for="reprogramar-hora">Nueva hora</label>
+      <input id="reprogramar-hora" type="time" required>
+      <div class="acciones-formulario">
+        <button type="submit" class="btn-principal">Guardar cambio</button>
+        <button id="btn-reprogramar-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
 
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.3.0</span>
+    <span id="version-pie">v0.5.0</span>
   </footer>
 
   <script src="app.js"></script>
