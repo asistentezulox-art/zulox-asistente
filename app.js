@@ -9,11 +9,17 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.0';
+  const VERSION = '0.5.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
   const CLAVE_EMAIL = 'zulox.email';
+  const ESPERA_SILENCIO_MS = 3000;
+  const ESPERA_CONFIRMACION_MS = 1800;
+  const MAX_ESCUCHA_MS = 45000;
+  const MAX_REINICIOS_DICTADO = 2;
+  const ESPERA_MANUAL_MS = 700;
+  const ESPERA_REINICIO_MS = 300;
 
   const estado = {
     api: '',
@@ -21,6 +27,17 @@
     usuario: null,
     reconocimiento: null,
     escuchando: false,
+    dictadoTexto: '',
+    dictadoParcial: '',
+    dictadoFinalizado: false,
+    dictadoManual: false,
+    dictadoReinicios: 0,
+    dictadoProcesando: false,
+    dictadoError: false,
+    timerSilencio: null,
+    timerMaximo: null,
+    timerManual: null,
+    timerReinicio: null,
     ocupado: false,
     borrador: null,
     resumen: null,
@@ -389,15 +406,18 @@
 
     const reconocimiento = new Constructor();
     reconocimiento.lang = 'es-AR';
-    reconocimiento.continuous = false;
+    reconocimiento.continuous = true;
     reconocimiento.interimResults = true;
     reconocimiento.maxAlternatives = 1;
 
     reconocimiento.onstart = function () {
+      if (estado.dictadoFinalizado) {
+        try { reconocimiento.abort(); } catch (error) {}
+        return;
+      }
       estado.escuchando = true;
-      $('btn-micro').classList.add('escuchando');
-      $('btn-micro').setAttribute('aria-pressed', 'true');
-      indicador('Escuchando…');
+      marcarMicro(true);
+      indicador('Escuchando. Hablá tranquilo; proceso cuando hagas una pausa.');
     };
 
     reconocimiento.onresult = function (evento) {
@@ -411,19 +431,28 @@
           parcial += texto;
         }
       }
-      if (parcial) transcripcion(parcial);
+
       if (final) {
-        transcripcion(final.trim());
-        procesarTexto(final.trim());
+        estado.dictadoTexto = juntarTexto_(estado.dictadoTexto, final);
       }
+      estado.dictadoParcial = parcial;
+      const visible = textoDictadoActual_();
+      if (visible) transcripcion(visible);
+      if (final || parcial) reiniciarSilencio();
     };
 
     reconocimiento.onerror = function (evento) {
       estado.escuchando = false;
-      $('btn-micro').classList.remove('escuchando');
-      $('btn-micro').setAttribute('aria-pressed', 'false');
+      marcarMicro(false);
       if (evento.error === 'aborted') return;
 
+      estado.dictadoError = true;
+      if (textoDictadoActual_()) {
+        finalizarDictado('error');
+        return;
+      }
+
+      estado.dictadoReinicios = MAX_REINICIOS_DICTADO;
       const mensajes = {
         'not-allowed': 'El micrófono está bloqueado. Permitilo en el navegador.',
         'service-not-allowed': 'El micrófono necesita HTTPS o localhost.',
@@ -436,15 +465,146 @@
 
     reconocimiento.onend = function () {
       estado.escuchando = false;
-      $('btn-micro').classList.remove('escuchando');
-      $('btn-micro').setAttribute('aria-pressed', 'false');
-      if (!estado.ocupado && !estado.resumen) {
-        const texto = $('indicador').textContent;
-        if (texto === 'Escuchando…') indicador('Tocá el micrófono y hablá');
+      marcarMicro(false);
+      if (estado.dictadoFinalizado || estado.dictadoProcesando) return;
+      if (estado.dictadoError) {
+        limpiarDictado();
+        estado.dictadoError = true;
+        return;
       }
+
+      const texto = textoDictadoActual_();
+      if (texto) {
+        if (estado.dictadoManual) {
+          finalizarDictado('manual');
+          return;
+        }
+        if (estado.dictadoReinicios < MAX_REINICIOS_DICTADO && !estado.ocupado) {
+          estado.dictadoReinicios += 1;
+          programarReinicio_();
+          return;
+        }
+        finalizarDictado('fin');
+        return;
+      }
+
+      if (!estado.dictadoManual && estado.dictadoReinicios < 1 && !estado.ocupado) {
+        estado.dictadoReinicios += 1;
+        programarReinicio_();
+        return;
+      }
+
+      if (!estado.ocupado && !estado.resumen) {
+        indicador('No escuché nada. Tocá el micrófono y probá de nuevo.');
+      }
+      limpiarDictado();
     };
 
     estado.reconocimiento = reconocimiento;
+  }
+
+  function marcarMicro(activo) {
+    $('btn-micro').classList.toggle('escuchando', !!activo);
+    $('btn-micro').setAttribute('aria-pressed', activo ? 'true' : 'false');
+  }
+
+  function juntarTexto_(parte1, parte2) {
+    return (String(parte1 || '') + ' ' + String(parte2 || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function textoDictadoActual_() {
+    return juntarTexto_(estado.dictadoTexto, estado.dictadoParcial);
+  }
+
+  function reiniciarSilencio() {
+    clearTimeout(estado.timerSilencio);
+    const espera = (estado.resumen || estado.opciones.length)
+      ? ESPERA_CONFIRMACION_MS
+      : ESPERA_SILENCIO_MS;
+    estado.timerSilencio = setTimeout(function () {
+      finalizarDictado('silencio');
+    }, espera);
+  }
+
+  function programarReinicio_() {
+    clearTimeout(estado.timerReinicio);
+    estado.timerReinicio = setTimeout(function () {
+      if (estado.dictadoFinalizado || estado.dictadoProcesando || estado.ocupado) return;
+      if (estado.escuchando) return;
+      try {
+        estado.reconocimiento.start();
+      } catch (error) {
+        finalizarDictado('fin');
+      }
+    }, ESPERA_REINICIO_MS);
+  }
+
+  function detenerDictado() {
+    estado.dictadoManual = true;
+    clearTimeout(estado.timerSilencio);
+    clearTimeout(estado.timerReinicio);
+    indicador('Listo, proceso lo que dijiste.');
+    try { estado.reconocimiento.stop(); } catch (error) {}
+    clearTimeout(estado.timerManual);
+    estado.timerManual = setTimeout(function () {
+      finalizarDictado('manual');
+    }, ESPERA_MANUAL_MS);
+  }
+
+  function finalizarDictado(motivo) {
+    if (estado.dictadoFinalizado || estado.dictadoProcesando) return;
+    estado.dictadoFinalizado = true;
+    estado.dictadoProcesando = true;
+    clearTimeout(estado.timerSilencio);
+    clearTimeout(estado.timerMaximo);
+    clearTimeout(estado.timerManual);
+    clearTimeout(estado.timerReinicio);
+    estado.escuchando = false;
+    marcarMicro(false);
+    try {
+      if (estado.reconocimiento) estado.reconocimiento.abort();
+    } catch (error) {}
+
+    const texto = textoDictadoActual_();
+    estado.dictadoTexto = '';
+    estado.dictadoParcial = '';
+    estado.dictadoManual = false;
+    estado.dictadoReinicios = 0;
+
+    if (!texto) {
+      estado.dictadoProcesando = false;
+      estado.dictadoFinalizado = true;
+      estado.dictadoReinicios = MAX_REINICIOS_DICTADO;
+      indicador('No escuché nada. Tocá el micrófono y probá de nuevo.');
+      return;
+    }
+
+    transcripcion(texto);
+    if (estado.ocupado) {
+      estado.dictadoProcesando = false;
+      estado.dictadoFinalizado = true;
+      estado.dictadoReinicios = MAX_REINICIOS_DICTADO;
+      indicador('Esperá un momento y volvé a hablar.');
+      return;
+    }
+
+    procesarTexto(texto);
+  }
+
+  function limpiarDictado() {
+    clearTimeout(estado.timerSilencio);
+    clearTimeout(estado.timerMaximo);
+    clearTimeout(estado.timerManual);
+    clearTimeout(estado.timerReinicio);
+    estado.dictadoTexto = '';
+    estado.dictadoParcial = '';
+    estado.dictadoFinalizado = false;
+    estado.dictadoManual = false;
+    estado.dictadoReinicios = 0;
+    estado.dictadoProcesando = false;
+    estado.dictadoError = false;
   }
 
   function alternarMicro() {
@@ -453,8 +613,11 @@
       $('entrada-manual').focus();
       return;
     }
-    if (estado.escuchando) {
-      try { estado.reconocimiento.stop(); } catch (error) {}
+    const dictadoActivo = !estado.dictadoFinalizado && !estado.dictadoProcesando &&
+      (estado.escuchando || estado.dictadoTexto || estado.dictadoParcial ||
+        estado.timerMaximo);
+    if (dictadoActivo) {
+      detenerDictado();
       return;
     }
     iniciarEscucha();
@@ -467,11 +630,18 @@
       return;
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
+    limpiarDictado();
+    estado.escuchando = false;
+    marcarMicro(false);
     transcripcion('');
-    indicador('Escuchando…');
+    indicador('Escuchando. Hablá tranquilo; proceso cuando hagas una pausa.');
+    estado.timerMaximo = setTimeout(function () {
+      finalizarDictado('maximo');
+    }, MAX_ESCUCHA_MS);
     try {
       estado.reconocimiento.start();
     } catch (error) {
+      limpiarDictado();
       indicador('Tocá el micrófono para responder');
     }
   }
