@@ -3,7 +3,7 @@
  * Guarda la pantalla para que abra rápido. Nunca guarda respuestas de la API.
  */
 
-const CACHE = 'zulox-asistente-v0.5.3';
+const CACHE = 'zulox-asistente-v0.5.4';
 const ARCHIVOS = [
   './',
   './index.html',
@@ -44,7 +44,6 @@ self.addEventListener('fetch', function (evento) {
 
   evento.respondWith(
     caches.match(pedido).then(function (guardado) {
-      if (guardado) return guardado;
       return fetch(pedido).then(function (respuesta) {
         if (respuesta && respuesta.ok && respuesta.type === 'basic') {
           const copia = respuesta.clone();
@@ -52,6 +51,7 @@ self.addEventListener('fetch', function (evento) {
         }
         return respuesta;
       }).catch(function () {
+        if (guardado) return guardado;
         if (pedido.mode === 'navigate') return caches.match('./index.html');
         return new Response('', { status: 503, statusText: 'Sin conexión' });
       });
