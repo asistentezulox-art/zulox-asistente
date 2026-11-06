@@ -760,6 +760,29 @@
           return;
         }
 
+        if (respuesta.intencion === 'CLIENTE_CREAR' || respuesta.intencion === 'PROVEEDOR_CREAR') {
+          estado.borrador = respuesta.datos;
+          estado.accionPendiente = respuesta.intencion === 'CLIENTE_CREAR' ? 'crear_cliente' : 'crear_proveedor';
+
+          if (respuesta.faltantes && respuesta.faltantes.length) {
+            cerrarResumen();
+            agregarMensaje('asistente', respuesta.pregunta);
+            indicador(respuesta.pregunta);
+            setTimeout(function () { hablar(respuesta.pregunta, iniciarEscucha); }, 0);
+            return;
+          }
+
+          estado.resumen = respuesta;
+          estado.idempotencia = nuevaClave();
+          mostrarResumen(respuesta.resumen);
+          agregarMensaje('asistente', 'Revisá el resumen. ¿Confirmás?');
+          indicador('Decí «sí» o tocá Confirmar');
+          setTimeout(function () {
+            hablar(respuesta.resumen + ' ¿Confirmás?', iniciarEscucha);
+          }, 0);
+          return;
+        }
+
         if (!respuesta.soportado) {
           agregarMensaje('asistente', respuesta.mensaje);
           limpiarBorrador();
@@ -984,6 +1007,14 @@
       confirmarAnulacion();
       return;
     }
+    if (estado.accionPendiente === 'crear_cliente') {
+      confirmarCliente();
+      return;
+    }
+    if (estado.accionPendiente === 'crear_proveedor') {
+      confirmarProveedor();
+      return;
+    }
     if (!estado.borrador) return;
 
     estado.ocupado = true;
@@ -1006,6 +1037,90 @@
         limpiarBorrador();
         indicador('Tocá el micrófono para agendar otra');
         if (resumen) agregarMensaje('asistente', '¿Querés agendar otra cosa?');
+      })
+      .catch(function (error) {
+        manejarError(error);
+      })
+      .finally(function () {
+        estado.ocupado = false;
+        $('btn-confirmar').disabled = false;
+        $('btn-corregir').disabled = false;
+        $('btn-cancelar').disabled = false;
+      });
+  }
+
+  function confirmarCliente() {
+    const datos = estado.borrador;
+    if (!datos || estado.ocupado) return;
+
+    estado.ocupado = true;
+    deshabilitarResumen(true);
+    indicador('Guardando cliente…');
+
+    api('voz.cliente.crear', {
+      cliente: {
+        nombre: datos.nombre,
+        apellido: datos.apellido,
+        tipo: datos.tipo,
+        telefono: datos.telefono,
+        email: datos.email
+      },
+      texto: estado.textoCompleto,
+      idempotencia: estado.idempotencia
+    })
+      .then(function (resultado) {
+        const mensaje = resultado.repetido
+          ? 'Este cliente ya estaba guardado.'
+          : 'Listo. Guardé el cliente ' + resultado.cliente_id + '.';
+        agregarMensaje('sistema', mensaje);
+        hablar(resultado.repetido ? mensaje : 'Listo. El cliente quedó guardado.');
+        limpiarBorrador();
+        indicador('Tocá el micrófono para agendar otra');
+        if (estado.resumen && estado.resumen.resumen) {
+          agregarMensaje('asistente', '¿Querés cargar otro cliente?');
+        }
+      })
+      .catch(function (error) {
+        manejarError(error);
+      })
+      .finally(function () {
+        estado.ocupado = false;
+        $('btn-confirmar').disabled = false;
+        $('btn-corregir').disabled = false;
+        $('btn-cancelar').disabled = false;
+      });
+  }
+
+  function confirmarProveedor() {
+    const datos = estado.borrador;
+    if (!datos || estado.ocupado) return;
+
+    estado.ocupado = true;
+    deshabilitarResumen(true);
+    indicador('Guardando proveedor…');
+
+    api('voz.proveedor.crear', {
+      proveedor: {
+        nombre_comercial: datos.nombre_comercial,
+        contacto: datos.contacto,
+        telefono: datos.telefono,
+        email: datos.email,
+        materiales: datos.materiales
+      },
+      texto: estado.textoCompleto,
+      idempotencia: estado.idempotencia
+    })
+      .then(function (resultado) {
+        const mensaje = resultado.repetido
+          ? 'Este proveedor ya estaba guardado.'
+          : 'Listo. Guardé el proveedor ' + resultado.proveedor_id + '.';
+        agregarMensaje('sistema', mensaje);
+        hablar(resultado.repetido ? mensaje : 'Listo. El proveedor quedó guardado.');
+        limpiarBorrador();
+        indicador('Tocá el micrófono para agendar otra');
+        if (estado.resumen && estado.resumen.resumen) {
+          agregarMensaje('asistente', '¿Querés cargar otro proveedor?');
+        }
       })
       .catch(function (error) {
         manejarError(error);
