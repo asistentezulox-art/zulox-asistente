@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.1';
+  const VERSION = '0.5.2';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -422,23 +422,21 @@
 
     reconocimiento.onresult = function (evento) {
       let parcial = '';
-      let final = '';
-      for (let i = evento.resultIndex; i < evento.results.length; i++) {
+      let huboFinal = false;
+      const inicio = evento.resultIndex || 0;
+      for (let i = inicio; i < evento.results.length; i++) {
         const texto = evento.results[i][0].transcript;
         if (evento.results[i].isFinal) {
-          final += texto;
+          huboFinal = true;
+          estado.dictadoTexto = unirTextoVoz_(estado.dictadoTexto, texto);
         } else {
-          parcial += texto;
+          parcial = texto;
         }
-      }
-
-      if (final) {
-        estado.dictadoTexto = juntarTexto_(estado.dictadoTexto, final);
       }
       estado.dictadoParcial = parcial;
       const visible = textoDictadoActual_();
       if (visible) transcripcion(visible);
-      if (final || parcial) reiniciarSilencio();
+      if (huboFinal || parcial) reiniciarSilencio();
     };
 
     reconocimiento.onerror = function (evento) {
@@ -515,7 +513,33 @@
   }
 
   function textoDictadoActual_() {
-    return juntarTexto_(estado.dictadoTexto, estado.dictadoParcial);
+    return unirTextoVoz_(estado.dictadoTexto, estado.dictadoParcial);
+  }
+
+  function unirTextoVoz_(base, nuevo) {
+    const a = String(base || '').replace(/\s+/g, ' ').trim();
+    const b = String(nuevo || '').replace(/\s+/g, ' ').trim();
+    if (!a) return b;
+    if (!b) return a;
+
+    const la = a.toLowerCase();
+    const lb = b.toLowerCase();
+    if (la === lb) return a;
+    if (lb.indexOf(la) === 0) return b;
+    if (la.indexOf(lb) === 0) return a;
+
+    const pa = la.split(' ');
+    const pb = lb.split(' ');
+    if (pa.length >= pb.length && pa.slice(-pb.length).join(' ') === lb) return a;
+
+    const max = Math.min(pa.length, pb.length);
+    for (let n = max; n > 0; n--) {
+      if (pa.slice(-n).join(' ') === pb.slice(0, n).join(' ')) {
+        return (a + ' ' + b.split(/\s+/).slice(n).join(' '))
+          .replace(/\s+/g, ' ').trim();
+      }
+    }
+    return a + ' ' + b;
   }
 
   function reiniciarSilencio() {

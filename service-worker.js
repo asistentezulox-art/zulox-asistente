@@ -3,7 +3,7 @@
  * Guarda la pantalla para que abra rápido. Nunca guarda respuestas de la API.
  */
 
-const CACHE = 'zulox-asistente-v0.5.1';
+const CACHE = 'zulox-asistente-v0.5.3';
 const ARCHIVOS = [
   './',
   './index.html',
