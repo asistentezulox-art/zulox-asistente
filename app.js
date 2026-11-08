@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.4';
+  const VERSION = '0.6.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -53,7 +53,11 @@
     agendaDesde: '',
     agendaHasta: '',
     agendaEtiqueta: '',
-    agendaItems: []
+    agendaItems: [],
+    directorioTipo: 'clientes',
+    directorioItems: [],
+    directorioSeleccion: null,
+    directorioCargando: false
   };
 
   const $ = function (id) { return document.getElementById(id); };
@@ -63,7 +67,8 @@
     config: $('pantalla-config'),
     login: $('pantalla-login'),
     principal: $('pantalla-principal'),
-    agenda: $('pantalla-agenda')
+    agenda: $('pantalla-agenda'),
+    directorio: $('pantalla-directorio')
   };
 
   function iniciar() {
@@ -114,11 +119,21 @@
     $('btn-cancelar').addEventListener('click', cancelar);
     $('btn-agenda').addEventListener('click', function () { abrirAgenda('hoy'); });
     $('btn-agenda-volver').addEventListener('click', function () { irA('principal'); });
-    $('form-reprogramar').addEventListener('submit', guardarReprogramacion);
-    $('btn-reprogramar-cancelar').addEventListener('click', cerrarDialogoReprogramar);
-    document.querySelectorAll('.btn-filtro').forEach(function (boton) {
+    $('btn-directorio').addEventListener('click', function () { abrirDirectorio('clientes'); });
+    $('btn-directorio-volver').addEventListener('click', function () { irA('principal'); });
+    $('form-buscar-directorio').addEventListener('submit', buscarDirectorio);
+    $('btn-nuevo-directorio').addEventListener('click', abrirFormularioEntidad);
+    $('form-entidad').addEventListener('submit', guardarEntidad);
+    $('btn-entidad-cancelar').addEventListener('click', cerrarFormularioEntidad);
+    $('btn-duplicados-cerrar').addEventListener('click', cerrarDialogoDuplicados);
+    document.querySelectorAll('.btn-filtro[data-rango]').forEach(function (boton) {
       boton.addEventListener('click', function () {
         abrirAgenda(boton.getAttribute('data-rango'));
+      });
+    });
+    document.querySelectorAll('.directorio-tabs .btn-filtro').forEach(function (boton) {
+      boton.addEventListener('click', function () {
+        abrirDirectorio(boton.getAttribute('data-tipo'));
       });
     });
 
@@ -134,7 +149,7 @@
     Object.keys(pantallas).forEach(function (clave) {
       pantallas[clave].classList.toggle('oculto', clave !== nombre);
     });
-    const enPrincipal = nombre === 'principal' || nombre === 'agenda';
+    const enPrincipal = nombre === 'principal' || nombre === 'agenda' || nombre === 'directorio';
     $('btn-salir').classList.toggle('oculto', !enPrincipal);
     $('btn-config').classList.toggle('oculto', nombre === 'config');
     window.scrollTo(0, 0);
@@ -1453,6 +1468,614 @@
         $('agenda-mensaje').textContent = error.message;
         hablar('No pude anular la actividad. ' + error.message);
       });
+  }
+
+  // -------------------------------------------------------------------------
+  // Clientes y proveedores
+  // -------------------------------------------------------------------------
+
+  function abrirDirectorio(tipo) {
+    estado.directorioTipo = tipo === 'proveedores' ? 'proveedores' : 'clientes';
+    estado.directorioItems = [];
+    estado.directorioSeleccion = null;
+    $('buscar-directorio').value = '';
+    cerrarDetalleDirectorio();
+    actualizarTabsDirectorio();
+    irA('directorio');
+    cargarDirectorio();
+  }
+
+  function actualizarTabsDirectorio() {
+    const esClientes = estado.directorioTipo === 'clientes';
+    document.querySelectorAll('.directorio-tabs .btn-filtro').forEach(function (boton) {
+      boton.classList.toggle('activo', boton.getAttribute('data-tipo') === estado.directorioTipo);
+    });
+    $('directorio-titulo').textContent = esClientes ? 'Clientes' : 'Proveedores';
+    $('btn-nuevo-directorio').textContent = esClientes ? 'Nuevo cliente' : 'Nuevo proveedor';
+    $('buscar-directorio').placeholder = esClientes
+      ? 'Buscar cliente por nombre, teléfono o email'
+      : 'Buscar proveedor por nombre, teléfono o email';
+  }
+
+  async function cargarDirectorio() {
+    if (estado.directorioCargando) return;
+    estado.directorioCargando = true;
+
+    const esClientes = estado.directorioTipo === 'clientes';
+    const texto = $('buscar-directorio').value.trim();
+    $('directorio-mensaje').textContent = 'Cargando…';
+    $('directorio-mensaje').classList.remove('ok');
+    $('directorio-lista').innerHTML = '';
+
+    try {
+      const items = await api(esClientes ? 'cliente.buscar' : 'proveedor.buscar', { texto: texto });
+      estado.directorioItems = items || [];
+      renderizarDirectorio(estado.directorioItems);
+    } catch (error) {
+      $('directorio-mensaje').textContent = error.message;
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      }
+    } finally {
+      estado.directorioCargando = false;
+    }
+  }
+
+  function renderizarDirectorio(items) {
+    const lista = $('directorio-lista');
+    lista.innerHTML = '';
+    const esClientes = estado.directorioTipo === 'clientes';
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = esClientes
+        ? 'No encontré clientes con esa búsqueda.'
+        : 'No encontré proveedores con esa búsqueda.';
+      lista.appendChild(vacio);
+      $('directorio-mensaje').textContent = '';
+      return;
+    }
+
+    $('directorio-mensaje').textContent = items.length +
+      (items.length === 1 ? ' registro.' : ' registros.');
+
+    items.forEach(function (item) {
+      const tarjeta = document.createElement('button');
+      tarjeta.type = 'button';
+      tarjeta.className = 'directorio-item';
+
+      const nombre = document.createElement('strong');
+      const meta = document.createElement('span');
+      meta.className = 'directorio-meta';
+
+      if (esClientes) {
+        nombre.textContent = item.nombre_completo || item.nombre || item.cliente_id;
+        const partes = [item.tipo || 'Cliente', item.telefono || 'Sin teléfono'];
+        if (item.email) partes.push(item.email);
+        meta.textContent = partes.join(' · ');
+      } else {
+        nombre.textContent = item.nombre_comercial || item.proveedor_id;
+        const partes = [];
+        if (item.contacto) partes.push(item.contacto);
+        partes.push(item.telefono || 'Sin teléfono');
+        if (item.materiales) partes.push(item.materiales);
+        meta.textContent = partes.join(' · ');
+      }
+
+      const detalle = document.createElement('span');
+      detalle.className = 'directorio-detalle-linea';
+      const direccion = item.direccion || item.localidad || '';
+      detalle.textContent = direccion || (item.observaciones || '');
+
+      tarjeta.appendChild(nombre);
+      tarjeta.appendChild(meta);
+      if (detalle.textContent) tarjeta.appendChild(detalle);
+      tarjeta.addEventListener('click', function () { abrirDetalleEntidad(item); });
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  async function abrirDetalleEntidad(item) {
+    if (!item) return;
+    const esClientes = estado.directorioTipo === 'clientes';
+    const id = esClientes ? item.cliente_id : item.proveedor_id;
+    if (!id) return;
+
+    estado.directorioSeleccion = item;
+    const contenedor = $('directorio-detalle');
+    contenedor.classList.remove('oculto');
+    contenedor.innerHTML = '<p class="ayuda">Cargando historial…</p>';
+    contenedor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    try {
+      const datos = await api(esClientes ? 'cliente.historial' : 'proveedor.historial',
+        esClientes ? { cliente_id: id } : { proveedor_id: id });
+      renderizarDetalleDirectorio(datos);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      contenedor.innerHTML = '';
+      const mensaje = document.createElement('p');
+      mensaje.className = 'mensaje-error';
+      mensaje.textContent = error.message;
+      contenedor.appendChild(mensaje);
+    }
+  }
+
+  function renderizarDetalleDirectorio(datos) {
+    const esClientes = estado.directorioTipo === 'clientes';
+    const entidad = esClientes ? datos.cliente : datos.proveedor;
+    if (!entidad) return;
+    estado.directorioSeleccion = entidad;
+
+    const contenedor = $('directorio-detalle');
+    contenedor.innerHTML = '';
+
+    const cabecera = document.createElement('div');
+    cabecera.className = 'detalle-cabecera';
+
+    const titulos = document.createElement('div');
+    const titulo = document.createElement('h2');
+    titulo.textContent = esClientes
+      ? (entidad.nombre_completo || entidad.nombre || entidad.cliente_id)
+      : (entidad.nombre_comercial || entidad.proveedor_id);
+    const identificador = document.createElement('p');
+    identificador.className = 'detalle-id';
+    identificador.textContent = (esClientes ? entidad.cliente_id : entidad.proveedor_id) +
+      ' · ' + (entidad.estado || '');
+    titulos.appendChild(titulo);
+    titulos.appendChild(identificador);
+
+    const cerrar = document.createElement('button');
+    cerrar.type = 'button';
+    cerrar.className = 'btn-texto';
+    cerrar.textContent = 'Cerrar';
+    cerrar.addEventListener('click', cerrarDetalleDirectorio);
+
+    cabecera.appendChild(titulos);
+    cabecera.appendChild(cerrar);
+    contenedor.appendChild(cabecera);
+
+    const campos = document.createElement('div');
+    campos.className = 'detalle-campos';
+    if (esClientes) {
+      agregarCampoDirectorio_(campos, 'Tipo', entidad.tipo);
+      agregarCampoDirectorio_(campos, 'Teléfono', entidad.telefono);
+      agregarCampoDirectorio_(campos, 'Email', entidad.email);
+      agregarCampoDirectorio_(campos, 'Dirección', entidad.direccion);
+      agregarCampoDirectorio_(campos, 'Localidad', entidad.localidad);
+      agregarCampoDirectorio_(campos, 'Observaciones', entidad.observaciones);
+    } else {
+      agregarCampoDirectorio_(campos, 'Contacto', entidad.contacto);
+      agregarCampoDirectorio_(campos, 'Teléfono', entidad.telefono);
+      agregarCampoDirectorio_(campos, 'Email', entidad.email);
+      agregarCampoDirectorio_(campos, 'Dirección', entidad.direccion);
+      agregarCampoDirectorio_(campos, 'Materiales o servicios', entidad.materiales);
+      agregarCampoDirectorio_(campos, 'Condiciones de pago', entidad.condiciones_pago);
+      agregarCampoDirectorio_(campos, 'Observaciones', entidad.observaciones);
+    }
+    agregarCampoDirectorio_(campos, 'Alta', fechaHoraCorta(entidad.fecha_alta));
+    contenedor.appendChild(campos);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'detalle-acciones';
+
+    if (esPropietario()) {
+      const duplicados = document.createElement('button');
+      duplicados.type = 'button';
+      duplicados.className = 'btn-secundario';
+      duplicados.textContent = 'Buscar duplicados';
+      duplicados.addEventListener('click', abrirDialogoDuplicados);
+      acciones.appendChild(duplicados);
+
+      if (String(entidad.estado || '').toUpperCase() === 'ACTIVO') {
+        const anular = document.createElement('button');
+        anular.type = 'button';
+        anular.className = 'btn-peligro';
+        anular.textContent = 'Anular';
+        anular.addEventListener('click', anularEntidadSeleccionada);
+        acciones.appendChild(anular);
+      }
+    } else {
+      const aviso = document.createElement('p');
+      aviso.className = 'ayuda';
+      aviso.textContent = 'Solo el propietario puede anular o fusionar registros.';
+      acciones.appendChild(aviso);
+    }
+    contenedor.appendChild(acciones);
+
+    const historialTitulo = document.createElement('h3');
+    historialTitulo.textContent = 'Historial de actividades';
+    contenedor.appendChild(historialTitulo);
+
+    const resumen = datos.resumen || {};
+    const resumenTexto = document.createElement('p');
+    resumenTexto.className = 'detalle-resumen';
+    resumenTexto.textContent = 'Total ' + (resumen.total || 0) +
+      ' · Pendientes ' + (resumen.pendientes || 0) +
+      ' · Realizadas ' + (resumen.realizadas || 0) +
+      ' · Canceladas ' + (resumen.canceladas || 0);
+    contenedor.appendChild(resumenTexto);
+
+    const actividades = datos.actividades || [];
+    if (!actividades.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'Todavía no hay actividades vinculadas.';
+      contenedor.appendChild(vacio);
+      return;
+    }
+
+    const historial = document.createElement('div');
+    historial.className = 'historial-lista';
+    actividades.forEach(function (actividad) {
+      const item = document.createElement('div');
+      item.className = 'historial-item';
+
+      const linea = document.createElement('div');
+      linea.className = 'historial-linea';
+      const tipo = document.createElement('strong');
+      tipo.textContent = tipoLegible(actividad.tipo);
+      const fecha = document.createElement('span');
+      fecha.textContent = fechaCorta(actividad.fecha) +
+        (actividad.hora ? ' ' + actividad.hora : '');
+      linea.appendChild(tipo);
+      linea.appendChild(fecha);
+
+      const motivo = document.createElement('p');
+      motivo.textContent = actividad.motivo || 'Sin detalle';
+
+      const meta = document.createElement('span');
+      meta.className = 'historial-meta';
+      meta.textContent = (actividad.estado || '') +
+        (actividad.origen ? ' · ' + actividad.origen : '');
+
+      item.appendChild(linea);
+      item.appendChild(motivo);
+      item.appendChild(meta);
+      historial.appendChild(item);
+    });
+    contenedor.appendChild(historial);
+  }
+
+  function agregarCampoDirectorio_(contenedor, etiqueta, valor) {
+    const campo = document.createElement('div');
+    campo.className = 'detalle-campo';
+    const nombre = document.createElement('span');
+    nombre.textContent = etiqueta;
+    const dato = document.createElement('strong');
+    dato.textContent = valor || '—';
+    campo.appendChild(nombre);
+    campo.appendChild(dato);
+    contenedor.appendChild(campo);
+  }
+
+  function cerrarDetalleDirectorio() {
+    estado.directorioSeleccion = null;
+    const contenedor = $('directorio-detalle');
+    contenedor.innerHTML = '';
+    contenedor.classList.add('oculto');
+  }
+
+  function esPropietario() {
+    return String((estado.usuario && estado.usuario.rol) || '').toUpperCase() === 'PROPIETARIO';
+  }
+
+  function abrirFormularioEntidad() {
+    const esClientes = estado.directorioTipo === 'clientes';
+    $('entidad-titulo').textContent = esClientes ? 'Nuevo cliente' : 'Nuevo proveedor';
+    $('campos-cliente').classList.toggle('oculto', !esClientes);
+    $('campos-proveedor').classList.toggle('oculto', esClientes);
+    $('cliente-nombre').required = esClientes;
+    $('proveedor-nombre').required = !esClientes;
+    limpiarFormularioEntidad();
+    entidadMensaje('');
+    mostrarDialogo_('dialogo-entidad');
+    setTimeout(function () {
+      if (esClientes) $('cliente-nombre').focus();
+      else $('proveedor-nombre').focus();
+    }, 50);
+  }
+
+  function limpiarFormularioEntidad() {
+    [
+      'cliente-nombre', 'cliente-apellido', 'cliente-telefono', 'cliente-email',
+      'cliente-direccion', 'cliente-localidad', 'cliente-observaciones',
+      'proveedor-nombre', 'proveedor-contacto', 'proveedor-telefono', 'proveedor-email',
+      'proveedor-direccion', 'proveedor-materiales', 'proveedor-condiciones',
+      'proveedor-observaciones'
+    ].forEach(function (id) {
+      const nodo = $(id);
+      if (nodo) nodo.value = '';
+    });
+    $('cliente-tipo').value = 'PARTICULAR';
+  }
+
+  function cerrarFormularioEntidad() {
+    entidadMensaje('');
+    ocultarDialogo_('dialogo-entidad');
+  }
+
+  function entidadMensaje(texto) {
+    $('entidad-mensaje').textContent = texto || '';
+  }
+
+  async function guardarEntidad(evento) {
+    evento.preventDefault();
+    const esClientes = estado.directorioTipo === 'clientes';
+    const boton = $('btn-entidad-guardar');
+
+    const datos = esClientes ? {
+      nombre: $('cliente-nombre').value.trim(),
+      apellido: $('cliente-apellido').value.trim(),
+      tipo: $('cliente-tipo').value,
+      telefono: $('cliente-telefono').value.trim(),
+      email: $('cliente-email').value.trim(),
+      direccion: $('cliente-direccion').value.trim(),
+      localidad: $('cliente-localidad').value.trim(),
+      observaciones: $('cliente-observaciones').value.trim()
+    } : {
+      nombre_comercial: $('proveedor-nombre').value.trim(),
+      contacto: $('proveedor-contacto').value.trim(),
+      telefono: $('proveedor-telefono').value.trim(),
+      email: $('proveedor-email').value.trim(),
+      direccion: $('proveedor-direccion').value.trim(),
+      materiales: $('proveedor-materiales').value.trim(),
+      condiciones_pago: $('proveedor-condiciones').value.trim(),
+      observaciones: $('proveedor-observaciones').value.trim()
+    };
+
+    if (esClientes && !datos.nombre) {
+      entidadMensaje('Escribí el nombre del cliente.');
+      return;
+    }
+    if (!esClientes && !datos.nombre_comercial) {
+      entidadMensaje('Escribí el nombre comercial del proveedor.');
+      return;
+    }
+
+    entidadMensaje('');
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    function enviar(forzar) {
+      const cuerpo = {};
+      cuerpo[esClientes ? 'cliente' : 'proveedor'] = Object.assign({}, datos);
+      if (forzar) cuerpo[esClientes ? 'cliente' : 'proveedor'].forzar = true;
+      return api(esClientes ? 'cliente.crear' : 'proveedor.crear', cuerpo);
+    }
+
+    try {
+      let resultado;
+      try {
+        resultado = await enviar(false);
+      } catch (error) {
+        if (error.codigo !== 'DUPLICADO' ||
+            !window.confirm(error.message + '\n\n¿Querés guardarlo igual?')) {
+          throw error;
+        }
+        resultado = await enviar(true);
+      }
+
+      cerrarFormularioEntidad();
+      $('buscar-directorio').value = '';
+      await cargarDirectorio();
+      $('directorio-mensaje').textContent = esClientes
+        ? 'Cliente guardado.'
+        : 'Proveedor guardado.';
+      $('directorio-mensaje').classList.add('ok');
+      abrirDetalleEntidad(esClientes
+        ? { cliente_id: resultado.cliente_id }
+        : { proveedor_id: resultado.proveedor_id });
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        entidadMensaje(error.message);
+      }
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar';
+    }
+  }
+
+  function buscarDirectorio(evento) {
+    evento.preventDefault();
+    cerrarDetalleDirectorio();
+    cargarDirectorio();
+  }
+
+  async function abrirDialogoDuplicados() {
+    const entidad = estado.directorioSeleccion;
+    if (!entidad) return;
+    const esClientes = estado.directorioTipo === 'clientes';
+    const id = esClientes ? entidad.cliente_id : entidad.proveedor_id;
+    if (!id) return;
+
+    $('duplicados-detalle').textContent = 'Buscando coincidencias…';
+    $('duplicados-lista').innerHTML = '';
+    mostrarDialogo_('dialogo-duplicados');
+
+    try {
+      const items = await api(esClientes ? 'cliente.duplicados' : 'proveedor.duplicados',
+        esClientes ? { cliente_id: id } : { proveedor_id: id });
+      renderizarDuplicados(items || [], entidad);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarDialogoDuplicados();
+        manejarError(error);
+        return;
+      }
+      $('duplicados-detalle').textContent = error.message;
+    }
+  }
+
+  function renderizarDuplicados(items, actual) {
+    const lista = $('duplicados-lista');
+    lista.innerHTML = '';
+    const esClientes = estado.directorioTipo === 'clientes';
+
+    if (!items.length) {
+      $('duplicados-detalle').textContent = 'No encontré registros parecidos.';
+      return;
+    }
+
+    $('duplicados-detalle').textContent =
+      'Elegí cuál se conserva. El otro queda como FUSIONADO y no se borra.';
+
+    items.forEach(function (item) {
+      const candidato = esClientes ? item.cliente : item.proveedor;
+      if (!candidato) return;
+
+      const tarjeta = document.createElement('div');
+      tarjeta.className = 'duplicado-item';
+
+      const nombre = document.createElement('strong');
+      nombre.textContent = nombreEntidadDirectorio_(candidato, esClientes);
+
+      const motivos = document.createElement('p');
+      motivos.className = 'duplicado-motivos';
+      motivos.textContent = 'Coincide por: ' + (item.coincidencias || [])
+        .map(motivoLegible).join(', ');
+
+      const datos = document.createElement('span');
+      datos.className = 'duplicado-datos';
+      datos.textContent = [candidato.telefono, candidato.email, candidato.direccion]
+        .filter(function (v) { return !!v; }).join(' · ');
+
+      const acciones = document.createElement('div');
+      acciones.className = 'duplicado-acciones';
+
+      const conservarActual = document.createElement('button');
+      conservarActual.type = 'button';
+      conservarActual.className = 'btn-secundario';
+      conservarActual.textContent = 'Conservar el actual';
+      conservarActual.addEventListener('click', function () {
+        fusionarEntidades(actual, candidato);
+      });
+
+      const conservarCandidato = document.createElement('button');
+      conservarCandidato.type = 'button';
+      conservarCandidato.className = 'btn-secundario';
+      conservarCandidato.textContent = 'Conservar este';
+      conservarCandidato.addEventListener('click', function () {
+        fusionarEntidades(candidato, actual);
+      });
+
+      acciones.appendChild(conservarActual);
+      acciones.appendChild(conservarCandidato);
+
+      tarjeta.appendChild(nombre);
+      tarjeta.appendChild(motivos);
+      if (datos.textContent) tarjeta.appendChild(datos);
+      tarjeta.appendChild(acciones);
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  async function fusionarEntidades(principal, duplicado) {
+    const esClientes = estado.directorioTipo === 'clientes';
+    const principalId = esClientes ? principal.cliente_id : principal.proveedor_id;
+    const duplicadoId = esClientes ? duplicado.cliente_id : duplicado.proveedor_id;
+    if (!principalId || !duplicadoId) return;
+
+    const nombrePrincipal = nombreEntidadDirectorio_(principal, esClientes);
+    const nombreDuplicado = nombreEntidadDirectorio_(duplicado, esClientes);
+    const seguro = window.confirm('¿Fusionar «' + nombreDuplicado + '» en «' +
+      nombrePrincipal + '»?\n\nSe conserva «' + nombrePrincipal + '», se mueve el ' +
+      'historial del otro y el duplicado queda marcado como FUSIONADO. No se borra nada.');
+    if (!seguro) return;
+
+    try {
+      await api(esClientes ? 'cliente.fusionar' : 'proveedor.fusionar', {
+        principal_id: principalId,
+        duplicado_id: duplicadoId
+      });
+      cerrarDialogoDuplicados();
+      await cargarDirectorio();
+      $('directorio-mensaje').textContent = 'Fusión guardada.';
+      $('directorio-mensaje').classList.add('ok');
+      abrirDetalleEntidad(principal);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarDialogoDuplicados();
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
+  function nombreEntidadDirectorio_(entidad, esClientes) {
+    if (!entidad) return '';
+    return esClientes
+      ? (entidad.nombre_completo || entidad.nombre || entidad.cliente_id || '')
+      : (entidad.nombre_comercial || entidad.proveedor_id || '');
+  }
+
+  function motivoLegible(motivo) {
+    const nombres = {
+      telefono: 'teléfono',
+      email: 'email',
+      nombre: 'nombre'
+    };
+    return nombres[String(motivo || '').toLowerCase()] || motivo;
+  }
+
+  function cerrarDialogoDuplicados() {
+    ocultarDialogo_('dialogo-duplicados');
+  }
+
+  async function anularEntidadSeleccionada() {
+    const entidad = estado.directorioSeleccion;
+    if (!entidad || !esPropietario()) return;
+    const esClientes = estado.directorioTipo === 'clientes';
+    const id = esClientes ? entidad.cliente_id : entidad.proveedor_id;
+    const nombre = nombreEntidadDirectorio_(entidad, esClientes);
+    if (!id) return;
+
+    const seguro = window.confirm('¿Anular «' + nombre + '»?\n\n' +
+      'No se borra: queda marcado como ANULADO.');
+    if (!seguro) return;
+
+    try {
+      const cuerpo = { motivo: 'Anulada desde la pantalla' };
+      cuerpo[esClientes ? 'cliente_id' : 'proveedor_id'] = id;
+      await api(esClientes ? 'cliente.anular' : 'proveedor.anular', cuerpo);
+      cerrarDetalleDirectorio();
+      await cargarDirectorio();
+      $('directorio-mensaje').textContent = esClientes
+        ? 'Cliente anulado.'
+        : 'Proveedor anulado.';
+      $('directorio-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
+  function mostrarDialogo_(id) {
+    const dialogo = $(id);
+    if (dialogo.showModal) dialogo.showModal();
+    else dialogo.setAttribute('open', 'open');
+  }
+
+  function ocultarDialogo_(id) {
+    const dialogo = $(id);
+    if (dialogo.close) dialogo.close();
+    else dialogo.removeAttribute('open');
+  }
+
+  function fechaHoraCorta(valor) {
+    const texto = String(valor || '').trim();
+    if (!texto) return '';
+    return fechaCorta(texto.slice(0, 10)) + (texto.length > 10 ? ' ' + texto.slice(11, 16) : '');
   }
 
   function resumenAgenda(items, etiqueta) {

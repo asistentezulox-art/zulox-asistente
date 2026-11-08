@@ -106,6 +106,10 @@
         Ver mi agenda
       </button>
 
+      <button id="btn-directorio" type="button" class="btn-secundario btn-agenda">
+        Clientes y proveedores
+      </button>
+
       <form id="form-manual" class="formulario-manual">
         <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
         <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
@@ -137,6 +141,38 @@
       <p id="agenda-mensaje" class="mensaje-config" role="status"></p>
       <div id="agenda-lista" class="agenda-lista" aria-live="polite"></div>
     </section>
+
+    <section id="pantalla-directorio" class="pantalla oculta">
+      <div class="agenda-cabecera">
+        <div>
+          <h1>Clientes y proveedores</h1>
+          <p id="directorio-titulo" class="agenda-titulo">Clientes</p>
+        </div>
+        <button id="btn-directorio-volver" type="button" class="btn-texto">Volver</button>
+      </div>
+
+      <div class="directorio-tabs" role="group" aria-label="Tipo de registro">
+        <button id="tab-clientes" type="button" class="btn-filtro activo" data-tipo="clientes">Clientes</button>
+        <button id="tab-proveedores" type="button" class="btn-filtro" data-tipo="proveedores">Proveedores</button>
+      </div>
+
+      <form id="form-buscar-directorio" class="formulario-manual">
+        <label class="oculto" for="buscar-directorio">Buscar cliente o proveedor</label>
+        <input id="buscar-directorio" type="search" autocomplete="off" maxlength="100"
+               placeholder="Buscar por nombre, teléfono o email">
+        <button type="submit" class="btn-enviar" aria-label="Buscar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 1 1-4.5 10l-3.2 3.2 1.4 1.4L6.9 15.4A6 6 0 0 1 10 4Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/></svg>
+        </button>
+      </form>
+
+      <div class="directorio-acciones">
+        <button id="btn-nuevo-directorio" type="button" class="btn-principal">Nuevo cliente</button>
+      </div>
+
+      <p id="directorio-mensaje" class="mensaje-config" role="status"></p>
+      <div id="directorio-lista" class="agenda-lista" aria-live="polite"></div>
+      <div id="directorio-detalle" class="directorio-detalle oculto"></div>
+    </section>
   </main>
 
   <dialog id="dialogo-reprogramar" class="dialogo">
@@ -154,9 +190,71 @@
     </form>
   </dialog>
 
+  <dialog id="dialogo-entidad" class="dialogo">
+    <form id="form-entidad" class="formulario">
+      <h2 id="entidad-titulo">Nuevo cliente</h2>
+
+      <div id="campos-cliente">
+        <label for="cliente-nombre">Nombre</label>
+        <input id="cliente-nombre" type="text" maxlength="80" autocomplete="off">
+        <label for="cliente-apellido">Apellido</label>
+        <input id="cliente-apellido" type="text" maxlength="80" autocomplete="off">
+        <label for="cliente-tipo">Tipo</label>
+        <select id="cliente-tipo">
+          <option value="PARTICULAR">Particular</option>
+          <option value="EMPRESA">Empresa</option>
+        </select>
+        <label for="cliente-telefono">Teléfono</label>
+        <input id="cliente-telefono" type="tel" maxlength="40" inputmode="tel" autocomplete="off">
+        <label for="cliente-email">Email</label>
+        <input id="cliente-email" type="email" maxlength="100" inputmode="email" autocomplete="off">
+        <label for="cliente-direccion">Dirección</label>
+        <input id="cliente-direccion" type="text" maxlength="200" autocomplete="off">
+        <label for="cliente-localidad">Localidad</label>
+        <input id="cliente-localidad" type="text" maxlength="80" autocomplete="off">
+        <label for="cliente-observaciones">Observaciones</label>
+        <textarea id="cliente-observaciones" maxlength="500" rows="3"></textarea>
+      </div>
+
+      <div id="campos-proveedor" class="oculto">
+        <label for="proveedor-nombre">Nombre comercial</label>
+        <input id="proveedor-nombre" type="text" maxlength="80" autocomplete="off">
+        <label for="proveedor-contacto">Contacto</label>
+        <input id="proveedor-contacto" type="text" maxlength="80" autocomplete="off">
+        <label for="proveedor-telefono">Teléfono</label>
+        <input id="proveedor-telefono" type="tel" maxlength="40" inputmode="tel" autocomplete="off">
+        <label for="proveedor-email">Email</label>
+        <input id="proveedor-email" type="email" maxlength="100" inputmode="email" autocomplete="off">
+        <label for="proveedor-direccion">Dirección</label>
+        <input id="proveedor-direccion" type="text" maxlength="200" autocomplete="off">
+        <label for="proveedor-materiales">Materiales o servicios</label>
+        <input id="proveedor-materiales" type="text" maxlength="200" autocomplete="off">
+        <label for="proveedor-condiciones">Condiciones de pago</label>
+        <input id="proveedor-condiciones" type="text" maxlength="100" autocomplete="off">
+        <label for="proveedor-observaciones">Observaciones</label>
+        <textarea id="proveedor-observaciones" maxlength="500" rows="3"></textarea>
+      </div>
+
+      <p id="entidad-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-entidad-guardar" type="submit" class="btn-principal">Guardar</button>
+        <button id="btn-entidad-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialogo-duplicados" class="dialogo">
+    <div class="formulario">
+      <h2>Posibles duplicados</h2>
+      <p id="duplicados-detalle" class="ayuda"></p>
+      <div id="duplicados-lista" class="duplicados-lista"></div>
+      <button id="btn-duplicados-cerrar" type="button" class="btn-secundario">Cerrar</button>
+    </div>
+  </dialog>
+
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.5.4</span>
+    <span id="version-pie">v0.6.0</span>
   </footer>
 
   <script src="app.js"></script>
