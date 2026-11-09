@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.0';
+  const VERSION = '0.6.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -724,6 +724,7 @@
   function procesarTexto(texto) {
     const limpio = String(texto || '').trim();
     if (!limpio || estado.ocupado) return;
+    transcripcion('');
 
     if (estado.resumen) {
       const decision = normalizar(limpio);
@@ -1078,7 +1079,9 @@
         apellido: datos.apellido,
         tipo: datos.tipo,
         telefono: datos.telefono,
-        email: datos.email
+        email: datos.email,
+        direccion: datos.direccion,
+        localidad: datos.localidad
       },
       texto: estado.textoCompleto,
       idempotencia: estado.idempotencia
@@ -1120,6 +1123,7 @@
         contacto: datos.contacto,
         telefono: datos.telefono,
         email: datos.email,
+        direccion: datos.direccion,
         materiales: datos.materiales
       },
       texto: estado.textoCompleto,
