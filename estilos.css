@@ -934,6 +934,217 @@ h1 {
   font-size: 0.8rem;
 }
 
+/* Etapa 6 - Presupuestos */
+
+.presupuestos-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.presupuesto-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 15px;
+  background: rgba(16, 42, 76, 0.78);
+  color: var(--blanco);
+  text-align: left;
+  transition: 0.16s ease;
+}
+
+.presupuesto-item:hover,
+.presupuesto-item:focus-visible {
+  border-color: rgba(76, 195, 255, 0.55);
+  background: rgba(21, 52, 92, 0.9);
+}
+
+.presupuesto-item-superior {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.presupuesto-item-superior strong {
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.presupuesto-estado {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.presupuesto-estado-pendiente { color: var(--ambar); border-color: rgba(255, 200, 87, 0.4); background: rgba(255, 200, 87, 0.08); }
+.presupuesto-estado-enviado { color: var(--celeste); border-color: rgba(76, 195, 255, 0.4); background: rgba(76, 195, 255, 0.08); }
+.presupuesto-estado-aceptado { color: var(--verde); border-color: rgba(69, 212, 131, 0.4); background: rgba(69, 212, 131, 0.08); }
+.presupuesto-estado-rechazado,
+.presupuesto-estado-vencido { color: #ffb3b3; border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08); }
+.presupuesto-estado-anulado { color: var(--gris); background: rgba(159, 178, 203, 0.06); }
+
+.presupuesto-cliente {
+  color: var(--blanco);
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.presupuesto-descripcion {
+  color: var(--gris);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.presupuesto-meta {
+  color: #6f88a4;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.presupuesto-total {
+  margin-top: 2px;
+  color: var(--celeste-suave);
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.presupuesto-total-detalle {
+  margin: 0 0 14px;
+  color: var(--celeste);
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.presupuesto-acciones .btn-principal,
+.presupuesto-acciones .btn-secundario,
+.presupuesto-acciones .btn-peligro {
+  padding: 10px 14px;
+  font-size: 0.86rem;
+}
+
+.presupuesto-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.presupuesto-item-linea {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 12px;
+  background: rgba(16, 42, 76, 0.65);
+}
+
+.presupuesto-item-linea.anulado {
+  opacity: 0.58;
+  border-style: dashed;
+}
+
+.presupuesto-item-cuerpo {
+  min-width: 0;
+}
+
+.presupuesto-item-cuerpo strong {
+  display: block;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.presupuesto-item-meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--gris);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.presupuesto-item-subtotal {
+  align-self: start;
+  color: var(--celeste-suave);
+  font-size: 0.9rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.presupuesto-item-acciones {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 7px;
+}
+
+.presupuesto-item-acciones .btn-reprogramar,
+.presupuesto-item-acciones .btn-anular {
+  padding: 6px 10px;
+  font-size: 0.76rem;
+}
+
+.presupuesto-seguimiento,
+.presupuesto-trabajo {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 12px;
+  background: rgba(7, 25, 46, 0.55);
+  color: var(--celeste-suave);
+  font-size: 0.86rem;
+}
+
+.form-doble,
+.form-tres {
+  display: grid;
+  gap: 10px;
+}
+
+.form-doble { grid-template-columns: 1fr 1fr; }
+.form-tres { grid-template-columns: 1fr 0.8fr 1fr; }
+
+.form-doble > div,
+.form-tres > div {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.form-doble > div > label,
+.form-tres > div > label {
+  margin-top: 8px;
+}
+
+.item-subtotal-vista {
+  margin: 10px 0 0;
+  color: var(--celeste);
+  font-size: 1rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+@media (max-width: 480px) {
+  .form-doble,
+  .form-tres { grid-template-columns: 1fr; }
+  .presupuesto-acciones .btn-principal,
+  .presupuesto-acciones .btn-secundario,
+  .presupuesto-acciones .btn-peligro { flex: 1 1 100%; }
+  .presupuesto-item-linea { grid-template-columns: minmax(0, 1fr); }
+  .presupuesto-item-subtotal { justify-self: start; }
+}
+
 @media (max-width: 430px) {
   .detalle-campo { grid-template-columns: 84px 1fr; }
   .duplicado-acciones .btn-secundario { flex: 1 1 100%; }

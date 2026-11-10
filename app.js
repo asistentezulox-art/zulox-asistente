@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.1';
+  const VERSION = '0.7.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -20,6 +20,9 @@
   const MAX_REINICIOS_DICTADO = 2;
   const ESPERA_MANUAL_MS = 700;
   const ESPERA_REINICIO_MS = 300;
+  const VALIDEZ_DIAS_PRESUPUESTO = 15;
+  const DIAS_SEGUIMIENTO_PRESUPUESTO = 7;
+  const MONEDA_PRESUPUESTO = 'ARS';
 
   const estado = {
     api: '',
@@ -57,7 +60,14 @@
     directorioTipo: 'clientes',
     directorioItems: [],
     directorioSeleccion: null,
-    directorioCargando: false
+    directorioCargando: false,
+    presupuestosEstado: 'TODOS',
+    presupuestosItems: [],
+    presupuestosCargando: false,
+    presupuestoActual: null,
+    presupuestoForm: null,
+    clientesFormulario: [],
+    itemPresupuestoEditando: null
   };
 
   const $ = function (id) { return document.getElementById(id); };
@@ -68,7 +78,8 @@
     login: $('pantalla-login'),
     principal: $('pantalla-principal'),
     agenda: $('pantalla-agenda'),
-    directorio: $('pantalla-directorio')
+    directorio: $('pantalla-directorio'),
+    presupuestos: $('pantalla-presupuestos')
   };
 
   function iniciar() {
@@ -126,6 +137,21 @@
     $('form-entidad').addEventListener('submit', guardarEntidad);
     $('btn-entidad-cancelar').addEventListener('click', cerrarFormularioEntidad);
     $('btn-duplicados-cerrar').addEventListener('click', cerrarDialogoDuplicados);
+    $('btn-presupuestos').addEventListener('click', function () { abrirPresupuestos(); });
+    $('btn-presupuestos-volver').addEventListener('click', function () { irA('principal'); });
+    $('form-buscar-presupuesto').addEventListener('submit', buscarPresupuestos);
+    $('btn-nuevo-presupuesto').addEventListener('click', function () { abrirFormularioPresupuesto(); });
+    $('form-presupuesto').addEventListener('submit', guardarPresupuesto);
+    $('btn-presupuesto-cancelar').addEventListener('click', cerrarFormularioPresupuesto);
+    $('form-item-presupuesto').addEventListener('submit', guardarItemPresupuesto);
+    $('btn-item-presupuesto-cancelar').addEventListener('click', cerrarFormularioItemPresupuesto);
+    $('item-presupuesto-cantidad').addEventListener('input', actualizarSubtotalItemPresupuesto);
+    $('item-presupuesto-precio').addEventListener('input', actualizarSubtotalItemPresupuesto);
+    document.querySelectorAll('.presupuestos-filtros .btn-filtro').forEach(function (boton) {
+      boton.addEventListener('click', function () {
+        abrirPresupuestos(boton.getAttribute('data-estado'));
+      });
+    });
     document.querySelectorAll('.btn-filtro[data-rango]').forEach(function (boton) {
       boton.addEventListener('click', function () {
         abrirAgenda(boton.getAttribute('data-rango'));
@@ -149,7 +175,8 @@
     Object.keys(pantallas).forEach(function (clave) {
       pantallas[clave].classList.toggle('oculto', clave !== nombre);
     });
-    const enPrincipal = nombre === 'principal' || nombre === 'agenda' || nombre === 'directorio';
+    const enPrincipal = nombre === 'principal' || nombre === 'agenda' ||
+      nombre === 'directorio' || nombre === 'presupuestos';
     $('btn-salir').classList.toggle('oculto', !enPrincipal);
     $('btn-config').classList.toggle('oculto', nombre === 'config');
     window.scrollTo(0, 0);
@@ -760,6 +787,20 @@
       reprogramar: estado.reprogramar
     })
       .then(function (respuesta) {
+        if (respuesta.intencion === 'PRESUPUESTO_CONSULTAR') {
+          limpiarBorrador();
+          abrirPresupuestos(respuesta.estado || 'TODOS');
+          agregarMensaje('asistente', respuesta.mensaje || 'Abriendo presupuestos.');
+          hablar(respuesta.mensaje || 'Abriendo presupuestos.');
+          return;
+        }
+
+        if (respuesta.intencion === 'PRESUPUESTO_CREAR' ||
+            respuesta.intencion === 'PRESUPUESTO_ESTADO') {
+          manejarRespuestaPresupuesto(respuesta);
+          return;
+        }
+
         if (respuesta.intencion === 'CONSULTAR' && respuesta.soportado && respuesta.rango) {
           limpiarBorrador();
           abrirAgendaRango(respuesta.rango);
@@ -861,6 +902,38 @@
     ['btn-confirmar', 'btn-corregir', 'btn-cancelar'].forEach(function (id) {
       $(id).disabled = !!deshabilitar;
     });
+  }
+
+  function manejarRespuestaPresupuesto(respuesta) {
+    if (!respuesta.soportado) {
+      agregarMensaje('asistente', respuesta.mensaje);
+      indicador(respuesta.mensaje);
+      hablar(respuesta.mensaje);
+      return;
+    }
+
+    if (respuesta.faltantes && respuesta.faltantes.length) {
+      cerrarResumen();
+      agregarMensaje('asistente', respuesta.pregunta || respuesta.mensaje);
+      indicador(respuesta.pregunta || respuesta.mensaje);
+      setTimeout(function () {
+        hablar(respuesta.pregunta || respuesta.mensaje, iniciarEscucha);
+      }, 0);
+      return;
+    }
+
+    estado.borrador = respuesta.datos;
+    estado.accionPendiente = respuesta.intencion === 'PRESUPUESTO_CREAR'
+      ? 'crear_presupuesto'
+      : 'estado_presupuesto';
+    estado.resumen = respuesta;
+    estado.idempotencia = nuevaClave();
+    mostrarResumen(respuesta.resumen);
+    agregarMensaje('asistente', 'Revisá el resumen. ¿Confirmás?');
+    indicador('Decí «sí» o tocá Confirmar');
+    setTimeout(function () {
+      hablar(respuesta.resumen + ' ¿Confirmás?', iniciarEscucha);
+    }, 0);
   }
 
   function manejarRespuestaReprogramar(respuesta) {
@@ -1031,6 +1104,11 @@
       confirmarProveedor();
       return;
     }
+    if (estado.accionPendiente === 'crear_presupuesto' ||
+        estado.accionPendiente === 'estado_presupuesto') {
+      confirmarPresupuestoVoz();
+      return;
+    }
     if (!estado.borrador) return;
 
     estado.ocupado = true;
@@ -1149,6 +1227,49 @@
         $('btn-confirmar').disabled = false;
         $('btn-corregir').disabled = false;
         $('btn-cancelar').disabled = false;
+      });
+  }
+
+  function confirmarPresupuestoVoz() {
+    const datos = estado.borrador;
+    if (!datos || estado.ocupado) return;
+    const creando = estado.accionPendiente === 'crear_presupuesto';
+
+    estado.ocupado = true;
+    deshabilitarResumen(true);
+    indicador(creando ? 'Guardando presupuesto…' : 'Actualizando presupuesto…');
+
+    const peticion = creando
+      ? api('presupuesto.crear', {
+        presupuesto: datos,
+        idempotencia: estado.idempotencia
+      })
+      : api('presupuesto.estado', {
+        presupuesto_id: datos.presupuesto_id,
+        estado: datos.estado,
+        motivo: 'Cambio por voz'
+      });
+
+    peticion
+      .then(function (resultado) {
+        const presupuesto = (resultado && resultado.presupuesto) || {};
+        const id = presupuesto.presupuesto_id || datos.presupuesto_id;
+        const mensaje = creando
+          ? 'Listo. Guardé el presupuesto ' + id + '.'
+          : 'Listo. El presupuesto ' + id + ' quedó ' +
+            estadoPresupuestoLegible_(datos.estado).toLowerCase() + '.';
+        agregarMensaje('sistema', mensaje);
+        hablar(mensaje);
+        limpiarBorrador();
+        abrirPresupuestos('TODOS');
+        if (id) {
+          setTimeout(function () { abrirDetallePresupuesto(id); }, 350);
+        }
+      })
+      .catch(function (error) { manejarError(error); })
+      .finally(function () {
+        estado.ocupado = false;
+        deshabilitarResumen(false);
       });
   }
 
@@ -2061,6 +2182,853 @@
       } else {
         window.alert(error.message);
       }
+    }
+  }
+
+  function abrirPresupuestos(filtro) {
+    if (filtro !== undefined) {
+      const nuevo = String(filtro || 'TODOS').toUpperCase();
+      estado.presupuestosEstado = nuevo || 'TODOS';
+    }
+    estado.presupuestosItems = [];
+    estado.presupuestoActual = null;
+    $('buscar-presupuesto').value = '';
+    cerrarDetallePresupuesto();
+    actualizarFiltrosPresupuestos();
+    irA('presupuestos');
+    cargarPresupuestos();
+  }
+
+  function actualizarFiltrosPresupuestos() {
+    document.querySelectorAll('.presupuestos-filtros .btn-filtro').forEach(function (boton) {
+      boton.classList.toggle('activo',
+        boton.getAttribute('data-estado') === estado.presupuestosEstado);
+    });
+    const titulos = {
+      TODOS: 'Todos los presupuestos',
+      PENDIENTE: 'Presupuestos pendientes',
+      ENVIADO: 'Presupuestos enviados',
+      ACEPTADO: 'Presupuestos aceptados',
+      RECHAZADO: 'Presupuestos rechazados',
+      VENCIDO: 'Presupuestos vencidos',
+      ANULADO: 'Presupuestos anulados'
+    };
+    $('presupuestos-titulo').textContent =
+      titulos[estado.presupuestosEstado] || titulos.TODOS;
+  }
+
+  async function cargarPresupuestos() {
+    if (estado.presupuestosCargando) return;
+    estado.presupuestosCargando = true;
+
+    const texto = $('buscar-presupuesto').value.trim();
+    const datos = { texto: texto };
+    if (estado.presupuestosEstado !== 'TODOS') {
+      datos.estado = estado.presupuestosEstado;
+    }
+
+    $('presupuestos-mensaje').textContent = 'Cargando…';
+    $('presupuestos-mensaje').classList.remove('ok');
+    $('presupuestos-lista').innerHTML = '';
+
+    try {
+      const items = await api('presupuesto.buscar', datos);
+      estado.presupuestosItems = items || [];
+      renderizarPresupuestos(estado.presupuestosItems);
+    } catch (error) {
+      $('presupuestos-mensaje').textContent = error.message;
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      }
+    } finally {
+      estado.presupuestosCargando = false;
+    }
+  }
+
+  function renderizarPresupuestos(items) {
+    const lista = $('presupuestos-lista');
+    lista.innerHTML = '';
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = estado.presupuestosEstado === 'TODOS'
+        ? 'Todavía no hay presupuestos cargados.'
+        : 'No encontré presupuestos con ese filtro.';
+      lista.appendChild(vacio);
+      $('presupuestos-mensaje').textContent = '';
+      return;
+    }
+
+    $('presupuestos-mensaje').textContent = items.length +
+      (items.length === 1 ? ' presupuesto.' : ' presupuestos.');
+
+    items.forEach(function (presupuesto) {
+      const tarjeta = document.createElement('button');
+      tarjeta.type = 'button';
+      tarjeta.className = 'presupuesto-item';
+
+      const superior = document.createElement('div');
+      superior.className = 'presupuesto-item-superior';
+
+      const identificador = document.createElement('strong');
+      identificador.textContent = presupuesto.presupuesto_id || 'Presupuesto';
+
+      const estadoNodo = document.createElement('span');
+      estadoNodo.className = 'presupuesto-estado ' +
+        estadoPresupuestoClase_(presupuesto.estado);
+      estadoNodo.textContent = estadoPresupuestoLegible_(presupuesto.estado);
+
+      superior.appendChild(identificador);
+      superior.appendChild(estadoNodo);
+
+      const cliente = document.createElement('span');
+      cliente.className = 'presupuesto-cliente';
+      cliente.textContent = presupuesto.cliente_nombre || presupuesto.cliente_id || 'Sin cliente';
+
+      const descripcion = document.createElement('span');
+      descripcion.className = 'presupuesto-descripcion';
+      descripcion.textContent = presupuesto.descripcion || 'Sin descripción';
+
+      const meta = document.createElement('span');
+      meta.className = 'presupuesto-meta';
+      const partes = [
+        tipoInstalacionLegible_(presupuesto.tipo_instalacion),
+        'Solicitud ' + fechaCorta(presupuesto.fecha_solicitud)
+      ];
+      if (presupuesto.fecha_seguimiento) {
+        partes.push('Seguimiento ' + fechaCorta(presupuesto.fecha_seguimiento));
+      }
+      if (presupuesto.vencido) {
+        partes.push('Vencido');
+      } else if (presupuesto.estado === 'ENVIADO' &&
+                 presupuesto.dias_para_vencer !== null &&
+                 presupuesto.dias_para_vencer >= 0 &&
+                 presupuesto.dias_para_vencer <= 3) {
+        partes.push('Vence en ' + presupuesto.dias_para_vencer +
+          (presupuesto.dias_para_vencer === 1 ? ' día' : ' días'));
+      }
+      meta.textContent = partes.join(' · ');
+
+      const total = document.createElement('span');
+      total.className = 'presupuesto-total';
+      total.textContent = monedaPresupuesto_(presupuesto.total);
+
+      tarjeta.appendChild(superior);
+      tarjeta.appendChild(cliente);
+      tarjeta.appendChild(descripcion);
+      tarjeta.appendChild(meta);
+      tarjeta.appendChild(total);
+      tarjeta.addEventListener('click', function () {
+        abrirDetallePresupuesto(presupuesto.presupuesto_id);
+      });
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  async function abrirDetallePresupuesto(id) {
+    if (!id) return;
+
+    estado.presupuestoActual = null;
+    const contenedor = $('presupuesto-detalle');
+    contenedor.classList.remove('oculto');
+    contenedor.innerHTML = '<p class="ayuda">Cargando presupuesto…</p>';
+    contenedor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    try {
+      const datos = await api('presupuesto.historial', { presupuesto_id: id });
+      renderizarDetallePresupuesto(datos);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      contenedor.innerHTML = '';
+      const mensaje = document.createElement('p');
+      mensaje.className = 'mensaje-error';
+      mensaje.textContent = error.message;
+      contenedor.appendChild(mensaje);
+    }
+  }
+
+  function renderizarDetallePresupuesto(datos) {
+    if (!datos || !datos.presupuesto) return;
+    const presupuesto = datos.presupuesto;
+    const items = datos.items || [];
+    const puedeEditar = ['PENDIENTE', 'ENVIADO'].indexOf(presupuesto.estado) !== -1;
+    estado.presupuestoActual = datos;
+
+    const contenedor = $('presupuesto-detalle');
+    contenedor.innerHTML = '';
+
+    const cabecera = document.createElement('div');
+    cabecera.className = 'detalle-cabecera';
+
+    const titulos = document.createElement('div');
+    const titulo = document.createElement('h2');
+    titulo.textContent = presupuesto.cliente_nombre || presupuesto.cliente_id;
+    const identificador = document.createElement('p');
+    identificador.className = 'detalle-id';
+    identificador.textContent = presupuesto.presupuesto_id + ' · ' +
+      estadoPresupuestoLegible_(presupuesto.estado);
+    titulos.appendChild(titulo);
+    titulos.appendChild(identificador);
+
+    const cerrar = document.createElement('button');
+    cerrar.type = 'button';
+    cerrar.className = 'btn-texto';
+    cerrar.textContent = 'Cerrar';
+    cerrar.addEventListener('click', cerrarDetallePresupuesto);
+
+    cabecera.appendChild(titulos);
+    cabecera.appendChild(cerrar);
+    contenedor.appendChild(cabecera);
+
+    const total = document.createElement('p');
+    total.className = 'presupuesto-total-detalle';
+    total.textContent = monedaPresupuesto_(presupuesto.total) +
+      (presupuesto.estado === 'ENVIADO' && presupuesto.fecha_vencimiento
+        ? ' · Vence ' + fechaCorta(presupuesto.fecha_vencimiento)
+        : '');
+    contenedor.appendChild(total);
+
+    const campos = document.createElement('div');
+    campos.className = 'detalle-campos';
+    agregarCampoDirectorio_(campos, 'Cliente', presupuesto.cliente_nombre);
+    agregarCampoDirectorio_(campos, 'Teléfono', presupuesto.cliente_telefono);
+    agregarCampoDirectorio_(campos, 'Dirección', presupuesto.cliente_direccion);
+    agregarCampoDirectorio_(campos, 'Instalación', tipoInstalacionLegible_(presupuesto.tipo_instalacion));
+    agregarCampoDirectorio_(campos, 'Descripción', presupuesto.descripcion);
+    agregarCampoDirectorio_(campos, 'Solicitud', fechaCorta(presupuesto.fecha_solicitud));
+    agregarCampoDirectorio_(campos, 'Envío', fechaCorta(presupuesto.fecha_envio));
+    agregarCampoDirectorio_(campos, 'Validez', presupuesto.validez_dias + ' días');
+    agregarCampoDirectorio_(campos, 'Seguimiento', fechaCorta(presupuesto.fecha_seguimiento));
+    agregarCampoDirectorio_(campos, 'Observaciones', presupuesto.observaciones);
+    contenedor.appendChild(campos);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'detalle-acciones presupuesto-acciones';
+
+    if (puedeEscribir()) {
+      if (puedeEditar) {
+        agregarAccionPresupuesto_(acciones, 'Editar', 'btn-secundario', function () {
+          abrirFormularioPresupuesto(presupuesto);
+        });
+        agregarAccionPresupuesto_(acciones, 'Agregar ítem', 'btn-secundario', function () {
+          abrirFormularioItemPresupuesto();
+        });
+      }
+
+      if (presupuesto.estado === 'PENDIENTE') {
+        agregarAccionPresupuesto_(acciones, 'Marcar enviado', 'btn-secundario', function () {
+          cambiarEstadoPresupuesto('ENVIADO');
+        });
+        agregarAccionPresupuesto_(acciones, 'Aceptar', 'btn-principal', function () {
+          cambiarEstadoPresupuesto('ACEPTADO');
+        });
+        agregarAccionPresupuesto_(acciones, 'Rechazar', 'btn-peligro', function () {
+          cambiarEstadoPresupuesto('RECHAZADO');
+        });
+      } else if (presupuesto.estado === 'ENVIADO') {
+        agregarAccionPresupuesto_(acciones, 'Aceptar', 'btn-principal', function () {
+          cambiarEstadoPresupuesto('ACEPTADO');
+        });
+        agregarAccionPresupuesto_(acciones, 'Rechazar', 'btn-peligro', function () {
+          cambiarEstadoPresupuesto('RECHAZADO');
+        });
+        agregarAccionPresupuesto_(acciones, 'Marcar vencido', 'btn-secundario', function () {
+          cambiarEstadoPresupuesto('VENCIDO');
+        });
+      } else if (presupuesto.estado === 'VENCIDO') {
+        agregarAccionPresupuesto_(acciones, 'Volver a enviar', 'btn-secundario', function () {
+          cambiarEstadoPresupuesto('ENVIADO');
+        });
+      }
+    }
+
+    if (esPropietario() &&
+        ['PENDIENTE', 'ENVIADO', 'VENCIDO'].indexOf(presupuesto.estado) !== -1) {
+      agregarAccionPresupuesto_(acciones, 'Anular', 'btn-peligro', function () {
+        cambiarEstadoPresupuesto('ANULADO');
+      });
+    }
+
+    if (!puedeEscribir()) {
+      const aviso = document.createElement('p');
+      aviso.className = 'ayuda';
+      aviso.textContent = 'Solo lectura: no podés modificar presupuestos.';
+      acciones.appendChild(aviso);
+    }
+    contenedor.appendChild(acciones);
+
+    const itemsTitulo = document.createElement('h3');
+    itemsTitulo.textContent = 'Ítems';
+    contenedor.appendChild(itemsTitulo);
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'El presupuesto todavía no tiene ítems.';
+      contenedor.appendChild(vacio);
+    } else {
+      const listaItems = document.createElement('div');
+      listaItems.className = 'presupuesto-items';
+      items.forEach(function (item) {
+        listaItems.appendChild(crearLineaItemPresupuesto_(item, puedeEditar));
+      });
+      contenedor.appendChild(listaItems);
+    }
+
+    const seguimientoTitulo = document.createElement('h3');
+    seguimientoTitulo.textContent = 'Seguimiento';
+    contenedor.appendChild(seguimientoTitulo);
+
+    if (datos.seguimiento) {
+      const seguimiento = document.createElement('p');
+      seguimiento.className = 'presupuesto-seguimiento';
+      seguimiento.textContent = fechaCorta(datos.seguimiento.fecha) +
+        ' ' + datos.seguimiento.hora + ' · ' + estadoActividadLegible_(datos.seguimiento.estado);
+      contenedor.appendChild(seguimiento);
+    } else {
+      const sinSeguimiento = document.createElement('p');
+      sinSeguimiento.className = 'ayuda';
+      sinSeguimiento.textContent = 'No hay un seguimiento pendiente.';
+      contenedor.appendChild(sinSeguimiento);
+    }
+
+    if (datos.trabajo) {
+      const trabajoTitulo = document.createElement('h3');
+      trabajoTitulo.textContent = 'Trabajo generado';
+      contenedor.appendChild(trabajoTitulo);
+
+      const trabajo = document.createElement('p');
+      trabajo.className = 'presupuesto-trabajo';
+      trabajo.textContent = datos.trabajo.trabajo_id + ' · ' +
+        estadoActividadLegible_(datos.trabajo.estado) + ' · ' +
+        monedaPresupuesto_(datos.trabajo.importe_presupuestado);
+      contenedor.appendChild(trabajo);
+    }
+
+    const historialTitulo = document.createElement('h3');
+    historialTitulo.textContent = 'Historial de cambios';
+    contenedor.appendChild(historialTitulo);
+
+    const historial = datos.historial || [];
+    if (!historial.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'Todavía no hay cambios registrados.';
+      contenedor.appendChild(vacio);
+      return;
+    }
+
+    const listaHistorial = document.createElement('div');
+    listaHistorial.className = 'historial-lista';
+    historial.slice(0, 30).forEach(function (log) {
+      const item = document.createElement('div');
+      item.className = 'historial-item';
+
+      const linea = document.createElement('div');
+      linea.className = 'historial-linea';
+      const accion = document.createElement('strong');
+      accion.textContent = accionPresupuestoLegible_(log.accion);
+      const fecha = document.createElement('span');
+      fecha.textContent = fechaHoraCorta(log.fecha);
+      linea.appendChild(accion);
+      linea.appendChild(fecha);
+
+      const detalle = document.createElement('p');
+      detalle.textContent = resumenDetalleLogPresupuesto_(log.detalle);
+
+      const meta = document.createElement('span');
+      meta.className = 'historial-meta';
+      meta.textContent = (log.usuario || '') + (log.origen ? ' · ' + log.origen : '');
+
+      item.appendChild(linea);
+      if (detalle.textContent) item.appendChild(detalle);
+      item.appendChild(meta);
+      listaHistorial.appendChild(item);
+    });
+    contenedor.appendChild(listaHistorial);
+  }
+
+  function crearLineaItemPresupuesto_(item, puedeEditar) {
+    const linea = document.createElement('div');
+    linea.className = 'presupuesto-item-linea' +
+      (item.estado === 'ANULADO' ? ' anulado' : '');
+
+    const cuerpo = document.createElement('div');
+    cuerpo.className = 'presupuesto-item-cuerpo';
+
+    const descripcion = document.createElement('strong');
+    descripcion.textContent = item.descripcion;
+
+    const meta = document.createElement('span');
+    meta.className = 'presupuesto-item-meta';
+    meta.textContent = tipoItemPresupuestoLegible_(item.tipo) + ' · ' +
+      item.cantidad + ' ' + item.unidad + ' × ' +
+      monedaPresupuesto_(item.precio_unitario) +
+      (item.estado === 'ANULADO' ? ' · ANULADO' : '');
+
+    cuerpo.appendChild(descripcion);
+    cuerpo.appendChild(meta);
+
+    const subtotal = document.createElement('span');
+    subtotal.className = 'presupuesto-item-subtotal';
+    subtotal.textContent = monedaPresupuesto_(item.subtotal);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'presupuesto-item-acciones';
+    if (puedeEditar && puedeEscribir() && item.estado !== 'ANULADO') {
+      const editar = document.createElement('button');
+      editar.type = 'button';
+      editar.className = 'btn-reprogramar';
+      editar.textContent = 'Editar';
+      editar.addEventListener('click', function () {
+        abrirFormularioItemPresupuesto(item);
+      });
+
+      const anular = document.createElement('button');
+      anular.type = 'button';
+      anular.className = 'btn-anular';
+      anular.textContent = 'Anular';
+      anular.addEventListener('click', function () {
+        anularItemPresupuesto(item);
+      });
+
+      acciones.appendChild(editar);
+      acciones.appendChild(anular);
+    }
+
+    linea.appendChild(cuerpo);
+    linea.appendChild(subtotal);
+    if (acciones.childNodes.length) linea.appendChild(acciones);
+    return linea;
+  }
+
+  function agregarAccionPresupuesto_(contenedor, texto, clase, accion) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = clase;
+    boton.textContent = texto;
+    boton.addEventListener('click', accion);
+    contenedor.appendChild(boton);
+  }
+
+  async function abrirFormularioPresupuesto(presupuesto) {
+    const edicion = !!(presupuesto && presupuesto.presupuesto_id);
+    const hoy = fechaISO(new Date());
+    estado.presupuestoForm = edicion ? presupuesto : null;
+
+    $('presupuesto-form-titulo').textContent = edicion
+      ? 'Editar presupuesto'
+      : 'Nuevo presupuesto';
+    $('presupuesto-form-mensaje').textContent = '';
+    $('presupuesto-fecha-solicitud').value = edicion
+      ? (presupuesto.fecha_solicitud || hoy)
+      : hoy;
+    $('presupuesto-fecha-envio').value = edicion
+      ? (presupuesto.fecha_envio || '')
+      : '';
+    $('presupuesto-seguimiento').value = edicion
+      ? (presupuesto.fecha_seguimiento || '')
+      : sumarDiasISO(hoy, DIAS_SEGUIMIENTO_PRESUPUESTO);
+    $('presupuesto-validez').value = edicion
+      ? (presupuesto.validez_dias || VALIDEZ_DIAS_PRESUPUESTO)
+      : VALIDEZ_DIAS_PRESUPUESTO;
+    $('presupuesto-tipo').value = edicion
+      ? (presupuesto.tipo_instalacion || 'SERVICIO')
+      : 'SERVICIO';
+    $('presupuesto-descripcion').value = edicion
+      ? (presupuesto.descripcion || '')
+      : '';
+    $('presupuesto-observaciones').value = edicion
+      ? (presupuesto.observaciones || '')
+      : '';
+
+    const select = $('presupuesto-cliente');
+    select.innerHTML = '<option value="">Cargando clientes…</option>';
+    mostrarDialogo_('dialogo-presupuesto');
+
+    try {
+      const clientes = await api('cliente.buscar', { texto: '' });
+      estado.clientesFormulario = clientes || [];
+    } catch (error) {
+      estado.clientesFormulario = [];
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioPresupuesto();
+        manejarError(error);
+        return;
+      }
+      $('presupuesto-form-mensaje').textContent = error.message;
+    }
+
+    const lista = (estado.clientesFormulario || []).slice();
+    if (edicion && presupuesto.cliente_id &&
+        !lista.some(function (cliente) { return cliente.cliente_id === presupuesto.cliente_id; })) {
+      lista.unshift({
+        cliente_id: presupuesto.cliente_id,
+        nombre_completo: presupuesto.cliente_nombre || presupuesto.cliente_id
+      });
+    }
+
+    select.innerHTML = '';
+    if (!lista.length) {
+      const opcion = document.createElement('option');
+      opcion.value = '';
+      opcion.textContent = 'No hay clientes activos';
+      select.appendChild(opcion);
+    } else {
+      lista.forEach(function (cliente) {
+        const opcion = document.createElement('option');
+        opcion.value = cliente.cliente_id;
+        opcion.textContent = cliente.nombre_completo || cliente.cliente_id;
+        select.appendChild(opcion);
+      });
+      select.value = edicion ? presupuesto.cliente_id : lista[0].cliente_id;
+    }
+    setTimeout(function () { $('presupuesto-descripcion').focus(); }, 50);
+  }
+
+  function cerrarFormularioPresupuesto() {
+    estado.presupuestoForm = null;
+    $('presupuesto-form-mensaje').textContent = '';
+    ocultarDialogo_('dialogo-presupuesto');
+  }
+
+  async function guardarPresupuesto(evento) {
+    evento.preventDefault();
+    const boton = $('btn-presupuesto-guardar');
+    const edicion = estado.presupuestoForm;
+    const entrada = {
+      cliente_id: $('presupuesto-cliente').value,
+      fecha_solicitud: $('presupuesto-fecha-solicitud').value,
+      fecha_envio: $('presupuesto-fecha-envio').value,
+      fecha_seguimiento: $('presupuesto-seguimiento').value,
+      tipo_instalacion: $('presupuesto-tipo').value,
+      descripcion: $('presupuesto-descripcion').value.trim(),
+      validez_dias: Number($('presupuesto-validez').value),
+      observaciones: $('presupuesto-observaciones').value.trim()
+    };
+
+    if (!entrada.cliente_id) {
+      $('presupuesto-form-mensaje').textContent = 'Elegí un cliente.';
+      return;
+    }
+    if (!entrada.descripcion) {
+      $('presupuesto-form-mensaje').textContent = 'Escribí una descripción.';
+      return;
+    }
+    if (edicion) entrada.presupuesto_id = edicion.presupuesto_id;
+
+    $('presupuesto-form-mensaje').textContent = '';
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      const resultado = await api(
+        edicion ? 'presupuesto.actualizar' : 'presupuesto.crear',
+        { presupuesto: entrada }
+      );
+      cerrarFormularioPresupuesto();
+      await cargarPresupuestos();
+      renderizarDetallePresupuesto(resultado);
+      $('presupuestos-mensaje').textContent = edicion
+        ? 'Presupuesto actualizado.'
+        : 'Presupuesto creado.';
+      $('presupuestos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioPresupuesto();
+        manejarError(error);
+      } else {
+        $('presupuesto-form-mensaje').textContent = error.message;
+      }
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar';
+    }
+  }
+
+  function abrirFormularioItemPresupuesto(item) {
+    const actual = estado.presupuestoActual;
+    if (!actual || !actual.presupuesto || !puedeEscribir()) return;
+    if (['PENDIENTE', 'ENVIADO'].indexOf(actual.presupuesto.estado) === -1) {
+      window.alert('El presupuesto ya está cerrado y no se puede modificar.');
+      return;
+    }
+
+    const edicion = !!item;
+    estado.itemPresupuestoEditando = edicion ? item : null;
+    $('item-presupuesto-titulo').textContent = edicion ? 'Editar ítem' : 'Agregar ítem';
+    $('item-presupuesto-contexto').textContent = actual.presupuesto.presupuesto_id +
+      ' · ' + (actual.presupuesto.cliente_nombre || '');
+    $('item-presupuesto-tipo').value = edicion ? item.tipo : 'MATERIAL';
+    $('item-presupuesto-descripcion').value = edicion ? item.descripcion : '';
+    $('item-presupuesto-cantidad').value = edicion ? item.cantidad : '1';
+    $('item-presupuesto-unidad').value = edicion ? item.unidad : 'UN';
+    $('item-presupuesto-precio').value = edicion ? item.precio_unitario : '0';
+    $('item-presupuesto-mensaje').textContent = '';
+    actualizarSubtotalItemPresupuesto();
+    mostrarDialogo_('dialogo-item-presupuesto');
+    setTimeout(function () { $('item-presupuesto-descripcion').focus(); }, 50);
+  }
+
+  function cerrarFormularioItemPresupuesto() {
+    estado.itemPresupuestoEditando = null;
+    $('item-presupuesto-mensaje').textContent = '';
+    ocultarDialogo_('dialogo-item-presupuesto');
+  }
+
+  function actualizarSubtotalItemPresupuesto() {
+    const cantidad = Number($('item-presupuesto-cantidad').value) || 0;
+    const precio = Number($('item-presupuesto-precio').value) || 0;
+    $('item-presupuesto-subtotal').textContent =
+      'Subtotal: ' + monedaPresupuesto_(cantidad * precio);
+  }
+
+  async function guardarItemPresupuesto(evento) {
+    evento.preventDefault();
+    const actual = estado.presupuestoActual;
+    if (!actual || !actual.presupuesto) return;
+
+    const item = {
+      tipo: $('item-presupuesto-tipo').value,
+      descripcion: $('item-presupuesto-descripcion').value.trim(),
+      cantidad: Number($('item-presupuesto-cantidad').value),
+      unidad: $('item-presupuesto-unidad').value,
+      precio_unitario: Number($('item-presupuesto-precio').value)
+    };
+
+    if (!item.descripcion) {
+      $('item-presupuesto-mensaje').textContent = 'Escribí la descripción del ítem.';
+      return;
+    }
+    if (!(item.cantidad > 0)) {
+      $('item-presupuesto-mensaje').textContent = 'La cantidad debe ser mayor a cero.';
+      return;
+    }
+    if (!(item.precio_unitario >= 0)) {
+      $('item-presupuesto-mensaje').textContent = 'El precio no es válido.';
+      return;
+    }
+
+    const editando = estado.itemPresupuestoEditando;
+    const boton = $('btn-item-presupuesto-guardar');
+    $('item-presupuesto-mensaje').textContent = '';
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      const cuerpo = editando
+        ? { item_id: editando.item_id, item: item }
+        : { presupuesto_id: actual.presupuesto.presupuesto_id, item: item };
+      const resultado = await api(
+        editando ? 'presupuesto.item.actualizar' : 'presupuesto.item.agregar',
+        cuerpo
+      );
+      cerrarFormularioItemPresupuesto();
+      renderizarDetallePresupuesto(resultado);
+      await cargarPresupuestos();
+      $('presupuestos-mensaje').textContent = editando
+        ? 'Ítem actualizado.'
+        : 'Ítem agregado.';
+      $('presupuestos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioItemPresupuesto();
+        manejarError(error);
+      } else {
+        $('item-presupuesto-mensaje').textContent = error.message;
+      }
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar ítem';
+    }
+  }
+
+  async function anularItemPresupuesto(item) {
+    if (!item || !puedeEscribir()) return;
+    const seguro = window.confirm('¿Anular el ítem «' + item.descripcion + '»?\n\n' +
+      'No se borra: queda marcado como ANULADO y deja de sumar al total.');
+    if (!seguro) return;
+
+    try {
+      const resultado = await api('presupuesto.item.anular', {
+        item_id: item.item_id,
+        motivo: 'Anulado desde la pantalla'
+      });
+      renderizarDetallePresupuesto(resultado);
+      await cargarPresupuestos();
+      $('presupuestos-mensaje').textContent = 'Ítem anulado.';
+      $('presupuestos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
+  async function cambiarEstadoPresupuesto(nuevoEstado) {
+    const actual = estado.presupuestoActual;
+    if (!actual || !actual.presupuesto) return;
+    const id = actual.presupuesto.presupuesto_id;
+
+    const mensajes = {
+      ENVIADO: '¿Marcar el presupuesto ' + id + ' como enviado?',
+      ACEPTADO: '¿Aceptar el presupuesto ' + id + '?\n\nSe va a crear un trabajo planificado.',
+      RECHAZADO: '¿Rechazar el presupuesto ' + id + '?',
+      VENCIDO: '¿Marcar el presupuesto ' + id + ' como vencido?',
+      ANULADO: '¿Anular el presupuesto ' + id + '?\n\nNo se borra: queda marcado como ANULADO.'
+    };
+    if (!window.confirm(mensajes[nuevoEstado] || '¿Cambiar el estado del presupuesto?')) return;
+
+    try {
+      const resultado = await api('presupuesto.estado', {
+        presupuesto_id: id,
+        estado: nuevoEstado,
+        motivo: 'Cambio desde la pantalla'
+      });
+      renderizarDetallePresupuesto(resultado);
+      await cargarPresupuestos();
+      $('presupuestos-mensaje').textContent = 'Estado actualizado: ' +
+        estadoPresupuestoLegible_(nuevoEstado) + '.';
+      $('presupuestos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
+  function cerrarDetallePresupuesto() {
+    estado.presupuestoActual = null;
+    const contenedor = $('presupuesto-detalle');
+    contenedor.innerHTML = '';
+    contenedor.classList.add('oculto');
+  }
+
+  function buscarPresupuestos(evento) {
+    evento.preventDefault();
+    cerrarDetallePresupuesto();
+    cargarPresupuestos();
+  }
+
+  function puedeEscribir() {
+    const rol = String((estado.usuario && estado.usuario.rol) || '').toUpperCase();
+    return rol === 'PROPIETARIO' || rol === 'COLABORADOR';
+  }
+
+  function estadoPresupuestoLegible_(estado) {
+    const nombres = {
+      PENDIENTE: 'Pendiente',
+      ENVIADO: 'Enviado',
+      ACEPTADO: 'Aceptado',
+      RECHAZADO: 'Rechazado',
+      VENCIDO: 'Vencido',
+      ANULADO: 'Anulado'
+    };
+    const clave = String(estado || '').toUpperCase();
+    return nombres[clave] || clave || 'Sin estado';
+  }
+
+  function estadoPresupuestoClase_(estado) {
+    return 'presupuesto-estado-' + String(estado || '').toLowerCase();
+  }
+
+  function tipoInstalacionLegible_(tipo) {
+    const nombres = {
+      ELECTRICA: 'Eléctrica',
+      SANITARIA: 'Sanitaria',
+      MATERIALES: 'Materiales',
+      SERVICIO: 'Servicio'
+    };
+    return nombres[String(tipo || '').toUpperCase()] || String(tipo || '');
+  }
+
+  function tipoItemPresupuestoLegible_(tipo) {
+    const nombres = {
+      MATERIAL: 'Material',
+      MANO_DE_OBRA: 'Mano de obra',
+      OTRO: 'Otro'
+    };
+    return nombres[String(tipo || '').toUpperCase()] || String(tipo || '');
+  }
+
+  function estadoActividadLegible_(estado) {
+    const nombres = {
+      PENDIENTE: 'Pendiente',
+      REALIZADA: 'Realizada',
+      CANCELADA: 'Cancelada',
+      REPROGRAMADA: 'Reprogramada',
+      PLANIFICADO: 'Planificado',
+      EN_CURSO: 'En curso',
+      TERMINADO: 'Terminado'
+    };
+    const clave = String(estado || '').toUpperCase();
+    return nombres[clave] || clave;
+  }
+
+  function accionPresupuestoLegible_(accion) {
+    const nombres = {
+      ALTA: 'Alta',
+      MODIFICACION: 'Modificación',
+      ITEM_ALTA: 'Ítem agregado',
+      ITEM_MODIFICACION: 'Ítem modificado',
+      ITEM_ANULACION: 'Ítem anulado',
+      CAMBIO_ESTADO: 'Cambio de estado'
+    };
+    const clave = String(accion || '').toUpperCase();
+    return nombres[clave] || clave || 'Cambio';
+  }
+
+  function resumenDetalleLogPresupuesto_(texto) {
+    if (!texto) return '';
+    try {
+      const datos = JSON.parse(texto);
+      const nombres = {
+        antes: 'Antes',
+        despues: 'Después',
+        motivo: 'Motivo',
+        total: 'Total',
+        tipo: 'Tipo',
+        descripcion: 'Descripción',
+        cantidad: 'Cantidad',
+        unidad: 'Unidad',
+        precio_unitario: 'Precio',
+        subtotal: 'Subtotal',
+        item_id: 'Ítem',
+        trabajo_id: 'Trabajo',
+        cliente_id: 'Cliente',
+        fecha_seguimiento: 'Seguimiento'
+      };
+      return Object.keys(datos).slice(0, 6).map(function (clave) {
+        const valor = datos[clave];
+        if (valor === undefined || valor === null || valor === '') return '';
+        const etiqueta = nombres[clave] || clave.replace(/_/g, ' ');
+        if (typeof valor === 'object') return etiqueta + ': ' + JSON.stringify(valor);
+        return etiqueta + ': ' + String(valor);
+      }).filter(function (parte) { return !!parte; }).join(' · ');
+    } catch (error) {
+      return String(texto).slice(0, 240);
+    }
+  }
+
+  function monedaPresupuesto_(valor) {
+    const numero = Number(valor) || 0;
+    try {
+      return numero.toLocaleString('es-AR', {
+        style: 'currency',
+        currency: MONEDA_PRESUPUESTO,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    } catch (error) {
+      return '$' + numero.toFixed(2);
     }
   }
 

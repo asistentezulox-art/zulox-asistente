@@ -40,7 +40,7 @@
       <p>Preparando el asistente…</p>
     </section>
 
-    <section id="pantalla-config" class="pantalla oculta">
+    <section id="pantalla-config" class="pantalla oculto">
       <h1>Configuración</h1>
       <p class="ayuda">Pegá la URL de la API publicada en Apps Script. Termina en <strong>/exec</strong>.</p>
       <form id="form-config" class="formulario">
@@ -56,7 +56,7 @@
       <button id="btn-config-volver" type="button" class="btn-texto">Volver</button>
     </section>
 
-    <section id="pantalla-login" class="pantalla oculta">
+    <section id="pantalla-login" class="pantalla oculto">
       <h1>Ingresar</h1>
       <p class="ayuda">Usá la cuenta del proyecto y tu PIN personal.</p>
       <form id="form-login" class="formulario">
@@ -72,7 +72,7 @@
       <button id="btn-login-config" type="button" class="btn-texto">Configurar URL de la API</button>
     </section>
 
-    <section id="pantalla-principal" class="pantalla oculta">
+    <section id="pantalla-principal" class="pantalla oculto">
       <div class="bienvenida">
         <p id="saludo" class="saludo">Hola.</p>
         <p id="estado-api" class="estado-api">Conectado</p>
@@ -82,7 +82,7 @@
 
       <div id="opciones-accion" class="opciones-accion oculto" aria-live="polite"></div>
 
-      <article id="tarjeta-resumen" class="tarjeta-resumen oculta" aria-labelledby="titulo-resumen">
+      <article id="tarjeta-resumen" class="tarjeta-resumen oculto" aria-labelledby="titulo-resumen">
         <h2 id="titulo-resumen">Revisá antes de guardar</h2>
         <p id="resumen-texto" class="resumen-texto"></p>
         <div class="acciones-resumen">
@@ -110,6 +110,10 @@
         Clientes y proveedores
       </button>
 
+      <button id="btn-presupuestos" type="button" class="btn-secundario btn-agenda">
+        Presupuestos
+      </button>
+
       <form id="form-manual" class="formulario-manual">
         <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
         <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
@@ -123,7 +127,7 @@
       <p id="aviso-mic" class="aviso-menor oculto"></p>
     </section>
 
-    <section id="pantalla-agenda" class="pantalla oculta">
+    <section id="pantalla-agenda" class="pantalla oculto">
       <div class="agenda-cabecera">
         <div>
           <h1>Mi agenda</h1>
@@ -142,7 +146,7 @@
       <div id="agenda-lista" class="agenda-lista" aria-live="polite"></div>
     </section>
 
-    <section id="pantalla-directorio" class="pantalla oculta">
+    <section id="pantalla-directorio" class="pantalla oculto">
       <div class="agenda-cabecera">
         <div>
           <h1>Clientes y proveedores</h1>
@@ -172,6 +176,43 @@
       <p id="directorio-mensaje" class="mensaje-config" role="status"></p>
       <div id="directorio-lista" class="agenda-lista" aria-live="polite"></div>
       <div id="directorio-detalle" class="directorio-detalle oculto"></div>
+    </section>
+
+    <section id="pantalla-presupuestos" class="pantalla oculto">
+      <div class="agenda-cabecera">
+        <div>
+          <h1>Presupuestos</h1>
+          <p id="presupuestos-titulo" class="agenda-titulo">Cargando…</p>
+        </div>
+        <button id="btn-presupuestos-volver" type="button" class="btn-texto">Volver</button>
+      </div>
+
+      <div class="presupuestos-filtros" role="group" aria-label="Estado del presupuesto">
+        <button type="button" class="btn-filtro activo" data-estado="TODOS">Todos</button>
+        <button type="button" class="btn-filtro" data-estado="PENDIENTE">Pendientes</button>
+        <button type="button" class="btn-filtro" data-estado="ENVIADO">Enviados</button>
+        <button type="button" class="btn-filtro" data-estado="ACEPTADO">Aceptados</button>
+        <button type="button" class="btn-filtro" data-estado="RECHAZADO">Rechazados</button>
+        <button type="button" class="btn-filtro" data-estado="VENCIDO">Vencidos</button>
+        <button type="button" class="btn-filtro" data-estado="ANULADO">Anulados</button>
+      </div>
+
+      <form id="form-buscar-presupuesto" class="formulario-manual">
+        <label class="oculto" for="buscar-presupuesto">Buscar presupuesto</label>
+        <input id="buscar-presupuesto" type="search" autocomplete="off" maxlength="100"
+               placeholder="Buscar por cliente, número o descripción">
+        <button type="submit" class="btn-enviar" aria-label="Buscar presupuesto">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 1 1-4.5 10l-3.2 3.2 1.4 1.4L6.9 15.4A6 6 0 0 1 10 4Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/></svg>
+        </button>
+      </form>
+
+      <div class="directorio-acciones">
+        <button id="btn-nuevo-presupuesto" type="button" class="btn-principal">Nuevo presupuesto</button>
+      </div>
+
+      <p id="presupuestos-mensaje" class="mensaje-config" role="status"></p>
+      <div id="presupuestos-lista" class="agenda-lista" aria-live="polite"></div>
+      <div id="presupuesto-detalle" class="directorio-detalle oculto"></div>
     </section>
   </main>
 
@@ -252,9 +293,104 @@
     </div>
   </dialog>
 
+  <dialog id="dialogo-presupuesto" class="dialogo">
+    <form id="form-presupuesto" class="formulario">
+      <h2 id="presupuesto-form-titulo">Nuevo presupuesto</h2>
+      <label for="presupuesto-cliente">Cliente</label>
+      <select id="presupuesto-cliente" required></select>
+
+      <div class="form-doble">
+        <div>
+          <label for="presupuesto-fecha-solicitud">Fecha de solicitud</label>
+          <input id="presupuesto-fecha-solicitud" type="date" required>
+        </div>
+        <div>
+          <label for="presupuesto-fecha-envio">Fecha de envío</label>
+          <input id="presupuesto-fecha-envio" type="date">
+        </div>
+      </div>
+
+      <div class="form-doble">
+        <div>
+          <label for="presupuesto-seguimiento">Fecha de seguimiento</label>
+          <input id="presupuesto-seguimiento" type="date">
+        </div>
+        <div>
+          <label for="presupuesto-validez">Validez en días</label>
+          <input id="presupuesto-validez" type="number" min="1" max="365" step="1" required>
+        </div>
+      </div>
+
+      <label for="presupuesto-tipo">Tipo de instalación</label>
+      <select id="presupuesto-tipo">
+        <option value="ELECTRICA">Eléctrica</option>
+        <option value="SANITARIA">Sanitaria</option>
+        <option value="MATERIALES">Materiales</option>
+        <option value="SERVICIO">Servicio</option>
+      </select>
+
+      <label for="presupuesto-descripcion">Descripción</label>
+      <textarea id="presupuesto-descripcion" maxlength="500" rows="3" required></textarea>
+
+      <label for="presupuesto-observaciones">Observaciones</label>
+      <textarea id="presupuesto-observaciones" maxlength="500" rows="2"></textarea>
+
+      <p id="presupuesto-form-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-presupuesto-guardar" type="submit" class="btn-principal">Guardar</button>
+        <button id="btn-presupuesto-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialogo-item-presupuesto" class="dialogo">
+    <form id="form-item-presupuesto" class="formulario">
+      <h2 id="item-presupuesto-titulo">Agregar ítem</h2>
+      <p id="item-presupuesto-contexto" class="ayuda"></p>
+
+      <label for="item-presupuesto-tipo">Tipo de ítem</label>
+      <select id="item-presupuesto-tipo">
+        <option value="MATERIAL">Material</option>
+        <option value="MANO_DE_OBRA">Mano de obra</option>
+        <option value="OTRO">Otro</option>
+      </select>
+
+      <label for="item-presupuesto-descripcion">Descripción</label>
+      <input id="item-presupuesto-descripcion" type="text" maxlength="300" required>
+
+      <div class="form-tres">
+        <div>
+          <label for="item-presupuesto-cantidad">Cantidad</label>
+          <input id="item-presupuesto-cantidad" type="number" min="0.001" step="0.001" required>
+        </div>
+        <div>
+          <label for="item-presupuesto-unidad">Unidad</label>
+          <select id="item-presupuesto-unidad">
+            <option value="UN">UN</option>
+            <option value="M">M</option>
+            <option value="M2">M2</option>
+            <option value="HORA">HORA</option>
+            <option value="GLOBAL">GLOBAL</option>
+          </select>
+        </div>
+        <div>
+          <label for="item-presupuesto-precio">Precio unitario</label>
+          <input id="item-presupuesto-precio" type="number" min="0" step="0.01" required>
+        </div>
+      </div>
+
+      <p id="item-presupuesto-subtotal" class="item-subtotal-vista">Subtotal: $0,00</p>
+      <p id="item-presupuesto-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-item-presupuesto-guardar" type="submit" class="btn-principal">Guardar ítem</button>
+        <button id="btn-item-presupuesto-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.6.1</span>
+    <span id="version-pie">v0.7.0</span>
   </footer>
 
   <script src="app.js"></script>
