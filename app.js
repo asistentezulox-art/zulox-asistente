@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.1';
+  const VERSION = '0.7.2';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -143,6 +143,9 @@
     $('btn-nuevo-presupuesto').addEventListener('click', function () { abrirFormularioPresupuesto(); });
     $('form-presupuesto').addEventListener('submit', guardarPresupuesto);
     $('btn-presupuesto-cancelar').addEventListener('click', cerrarFormularioPresupuesto);
+    $('presupuesto-cliente').addEventListener('change', function () {
+      actualizarDireccionTrabajoSugerida_(true);
+    });
     $('form-item-presupuesto').addEventListener('submit', guardarItemPresupuesto);
     $('btn-item-presupuesto-cancelar').addEventListener('click', cerrarFormularioItemPresupuesto);
     $('item-presupuesto-cantidad').addEventListener('input', actualizarSubtotalItemPresupuesto);
@@ -2396,7 +2399,9 @@
     campos.className = 'detalle-campos';
     agregarCampoDirectorio_(campos, 'Cliente', presupuesto.cliente_nombre);
     agregarCampoDirectorio_(campos, 'Teléfono', presupuesto.cliente_telefono);
-    agregarCampoDirectorio_(campos, 'Dirección', presupuesto.cliente_direccion);
+    agregarCampoDirectorio_(campos, 'Dirección del cliente', presupuesto.cliente_direccion);
+    agregarCampoDirectorio_(campos, 'Dirección del trabajo',
+      presupuesto.direccion_trabajo || presupuesto.cliente_direccion);
     agregarCampoDirectorio_(campos, 'Instalación', tipoInstalacionLegible_(presupuesto.tipo_instalacion));
     agregarCampoDirectorio_(campos, 'Descripción', presupuesto.descripcion);
     agregarCampoDirectorio_(campos, 'Solicitud', fechaCorta(presupuesto.fecha_solicitud));
@@ -2642,6 +2647,9 @@
     $('presupuesto-descripcion').value = edicion
       ? (presupuesto.descripcion || '')
       : '';
+    $('presupuesto-direccion-trabajo').value = edicion
+      ? (presupuesto.direccion_trabajo || '')
+      : '';
     $('presupuesto-importe').value = '';
     $('presupuesto-importe-campo').classList.toggle('oculto', edicion);
     $('presupuesto-observaciones').value = edicion
@@ -2689,7 +2697,37 @@
       });
       select.value = edicion ? presupuesto.cliente_id : lista[0].cliente_id;
     }
+    actualizarDireccionTrabajoSugerida_(!edicion);
     setTimeout(function () { $('presupuesto-descripcion').focus(); }, 50);
+  }
+
+  function direccionTrabajoCliente_() {
+    const id = $('presupuesto-cliente').value;
+    const cliente = (estado.clientesFormulario || []).filter(function (c) {
+      return c.cliente_id === id;
+    })[0];
+    return cliente ? String(cliente.direccion || '').trim() : '';
+  }
+
+  function direccionTrabajoValida_(direccion) {
+    const texto = String(direccion || '').trim();
+    if (!texto) return false;
+    return !/^\d{1,2}\/\d{1,2}\/\d{1,4}\s+\d{1,2}:\d{2}(:\d{2})?$/.test(texto);
+  }
+
+  function actualizarDireccionTrabajoSugerida_(rellenar) {
+    const campo = $('presupuesto-direccion-trabajo');
+    const original = direccionTrabajoCliente_();
+    const sugerida = direccionTrabajoValida_(original) ? original : '';
+    const anterior = campo.getAttribute('data-sugerida') || '';
+
+    if (rellenar && (!campo.value || campo.value === anterior)) {
+      campo.value = sugerida;
+    }
+    campo.setAttribute('data-sugerida', sugerida);
+    campo.placeholder = sugerida
+      ? 'Ej. ' + sugerida
+      : (original ? 'Corregí la dirección del trabajo' : 'Escribí la dirección del trabajo');
   }
 
   function cerrarFormularioPresupuesto() {
@@ -2704,6 +2742,7 @@
     const edicion = estado.presupuestoForm;
     const entrada = {
       cliente_id: $('presupuesto-cliente').value,
+      direccion_trabajo: $('presupuesto-direccion-trabajo').value.trim(),
       fecha_solicitud: $('presupuesto-fecha-solicitud').value,
       fecha_envio: $('presupuesto-fecha-envio').value,
       fecha_seguimiento: $('presupuesto-seguimiento').value,
@@ -2720,6 +2759,11 @@
     }
     if (!entrada.descripcion) {
       $('presupuesto-form-mensaje').textContent = 'Escribí una descripción.';
+      return;
+    }
+    if (!entrada.direccion_trabajo && !direccionTrabajoValida_(direccionTrabajoCliente_())) {
+      $('presupuesto-form-mensaje').textContent =
+        'Escribí la dirección del trabajo: la del cliente está vacía o no es válida.';
       return;
     }
     if (importe < 0) {
