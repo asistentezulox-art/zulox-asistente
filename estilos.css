@@ -993,6 +993,37 @@ h1 {
 .presupuesto-estado-rechazado,
 .presupuesto-estado-vencido { color: #ffb3b3; border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08); }
 .presupuesto-estado-anulado { color: var(--gris); background: rgba(159, 178, 203, 0.06); }
+.presupuesto-estado-planificado { color: var(--ambar); border-color: rgba(255, 200, 87, 0.4); background: rgba(255, 200, 87, 0.08); }
+.presupuesto-estado-en_curso { color: var(--celeste); border-color: rgba(76, 195, 255, 0.4); background: rgba(76, 195, 255, 0.08); }
+.presupuesto-estado-finalizado { color: var(--verde); border-color: rgba(69, 212, 131, 0.4); background: rgba(69, 212, 131, 0.08); }
+.presupuesto-estado-cobrado { color: var(--verde); border-color: rgba(69, 212, 131, 0.55); background: rgba(69, 212, 131, 0.14); }
+
+.trabajo-resumen {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.trabajo-resumen-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 12px;
+  background: rgba(10, 30, 54, 0.7);
+}
+
+.trabajo-resumen-item span {
+  color: var(--gris);
+  font-size: 0.74rem;
+}
+
+.trabajo-resumen-item strong {
+  color: var(--celeste-suave);
+  font-size: 1rem;
+}
 
 .presupuesto-cliente {
   color: var(--blanco);

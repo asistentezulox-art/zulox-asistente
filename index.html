@@ -114,6 +114,10 @@
         Presupuestos
       </button>
 
+      <button id="btn-trabajos" type="button" class="btn-secundario btn-agenda">
+        Trabajos
+      </button>
+
       <form id="form-manual" class="formulario-manual">
         <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
         <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
@@ -213,6 +217,39 @@
       <p id="presupuestos-mensaje" class="mensaje-config" role="status"></p>
       <div id="presupuestos-lista" class="agenda-lista" aria-live="polite"></div>
       <div id="presupuesto-detalle" class="directorio-detalle oculto"></div>
+    </section>
+
+    <section id="pantalla-trabajos" class="pantalla oculto">
+      <div class="agenda-cabecera">
+        <div>
+          <h1>Trabajos</h1>
+          <p id="trabajos-titulo" class="agenda-titulo">Cargando…</p>
+        </div>
+        <button id="btn-trabajos-volver" type="button" class="btn-texto">Volver</button>
+      </div>
+
+      <div class="presupuestos-filtros" role="group" aria-label="Estado del trabajo">
+        <button type="button" class="btn-filtro activo" data-estado="TODOS">Todos</button>
+        <button type="button" class="btn-filtro" data-estado="PLANIFICADO">Planificados</button>
+        <button type="button" class="btn-filtro" data-estado="EN_CURSO">En curso</button>
+        <button type="button" class="btn-filtro" data-estado="FINALIZADO">Finalizados</button>
+        <button type="button" class="btn-filtro" data-estado="COBRADO">Cobrados</button>
+        <button type="button" class="btn-filtro" data-estado="ANULADO">Anulados</button>
+      </div>
+
+      <form id="form-buscar-trabajo" class="formulario-manual">
+        <label class="oculto" for="buscar-trabajo">Buscar trabajo</label>
+        <input id="buscar-trabajo" type="search" autocomplete="off" maxlength="100"
+               placeholder="Buscar por cliente, número, dirección o descripción">
+        <button type="submit" class="btn-enviar" aria-label="Buscar trabajo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 1 1-4.5 10l-3.2 3.2 1.4 1.4L6.9 15.4A6 6 0 0 1 10 4Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/></svg>
+        </button>
+      </form>
+
+      <p class="ayuda">Los trabajos se crean al aceptar un presupuesto.</p>
+      <p id="trabajos-mensaje" class="mensaje-config" role="status"></p>
+      <div id="trabajos-lista" class="agenda-lista" aria-live="polite"></div>
+      <div id="trabajo-detalle" class="directorio-detalle oculto"></div>
     </section>
   </main>
 
@@ -402,9 +439,95 @@
     </form>
   </dialog>
 
+  <dialog id="dialogo-trabajo" class="dialogo">
+    <form id="form-trabajo" class="formulario">
+      <h2 id="trabajo-form-titulo">Editar trabajo</h2>
+      <p id="trabajo-form-contexto" class="ayuda"></p>
+
+      <label for="trabajo-direccion">Dirección del trabajo</label>
+      <input id="trabajo-direccion" type="text" maxlength="200" required autocomplete="off">
+
+      <div class="form-doble">
+        <div>
+          <label for="trabajo-fecha-inicio">Fecha de inicio</label>
+          <input id="trabajo-fecha-inicio" type="date">
+        </div>
+        <div>
+          <label for="trabajo-fecha-fin">Fecha de fin</label>
+          <input id="trabajo-fecha-fin" type="date">
+        </div>
+      </div>
+
+      <label for="trabajo-tipo">Tipo de instalación</label>
+      <select id="trabajo-tipo">
+        <option value="">Sin definir</option>
+        <option value="ELECTRICA">Eléctrica</option>
+        <option value="SANITARIA">Sanitaria</option>
+        <option value="MATERIALES">Materiales</option>
+        <option value="SERVICIO">Servicio</option>
+      </select>
+
+      <label for="trabajo-descripcion">Descripción</label>
+      <textarea id="trabajo-descripcion" maxlength="300" rows="3"></textarea>
+
+      <label for="trabajo-observaciones">Observaciones</label>
+      <textarea id="trabajo-observaciones" maxlength="500" rows="2"></textarea>
+
+      <p id="trabajo-form-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-trabajo-guardar" type="submit" class="btn-principal">Guardar</button>
+        <button id="btn-trabajo-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialogo-costo-trabajo" class="dialogo">
+    <form id="form-costo-trabajo" class="formulario">
+      <h2 id="costo-trabajo-titulo">Agregar costo</h2>
+      <p id="costo-trabajo-contexto" class="ayuda"></p>
+
+      <label for="costo-trabajo-tipo">Tipo de costo</label>
+      <select id="costo-trabajo-tipo">
+        <option value="MATERIAL">Material</option>
+        <option value="MANO_DE_OBRA">Mano de obra</option>
+        <option value="GASTO_EXTRA">Gasto extra</option>
+      </select>
+
+      <label for="costo-trabajo-descripcion">Descripción</label>
+      <input id="costo-trabajo-descripcion" type="text" maxlength="300" required autocomplete="off">
+
+      <div class="form-tres">
+        <div>
+          <label for="costo-trabajo-cantidad">Cantidad</label>
+          <input id="costo-trabajo-cantidad" type="number" min="0.001" step="0.001" required>
+        </div>
+        <div>
+          <label for="costo-trabajo-importe">Importe total</label>
+          <input id="costo-trabajo-importe" type="number" min="0.01" step="0.01" required>
+        </div>
+        <div>
+          <label for="costo-trabajo-fecha">Fecha</label>
+          <input id="costo-trabajo-fecha" type="date" required>
+        </div>
+      </div>
+
+      <label for="costo-trabajo-proveedor">Proveedor (opcional)</label>
+      <select id="costo-trabajo-proveedor">
+        <option value="">Sin proveedor</option>
+      </select>
+      <p class="ayuda">El importe es el total del costo. La cantidad queda como dato de referencia.</p>
+
+      <p id="costo-trabajo-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-costo-trabajo-guardar" type="submit" class="btn-principal">Guardar costo</button>
+        <button id="btn-costo-trabajo-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.7.2</span>
+    <span id="version-pie">v0.8.0</span>
   </footer>
 
   <script src="app.js"></script>

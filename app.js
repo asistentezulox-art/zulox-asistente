@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.2';
+  const VERSION = '0.8.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -67,7 +67,13 @@
     presupuestoActual: null,
     presupuestoForm: null,
     clientesFormulario: [],
-    itemPresupuestoEditando: null
+    itemPresupuestoEditando: null,
+    trabajosEstado: 'TODOS',
+    trabajosItems: [],
+    trabajosCargando: false,
+    trabajoActual: null,
+    costoTrabajoEditando: null,
+    proveedoresFormulario: []
   };
 
   const $ = function (id) { return document.getElementById(id); };
@@ -79,7 +85,8 @@
     principal: $('pantalla-principal'),
     agenda: $('pantalla-agenda'),
     directorio: $('pantalla-directorio'),
-    presupuestos: $('pantalla-presupuestos')
+    presupuestos: $('pantalla-presupuestos'),
+    trabajos: $('pantalla-trabajos')
   };
 
   function iniciar() {
@@ -139,6 +146,13 @@
     $('btn-duplicados-cerrar').addEventListener('click', cerrarDialogoDuplicados);
     $('btn-presupuestos').addEventListener('click', function () { abrirPresupuestos(); });
     $('btn-presupuestos-volver').addEventListener('click', function () { irA('principal'); });
+    $('btn-trabajos').addEventListener('click', function () { abrirTrabajos(); });
+    $('btn-trabajos-volver').addEventListener('click', function () { irA('principal'); });
+    $('form-buscar-trabajo').addEventListener('submit', buscarTrabajos);
+    $('form-trabajo').addEventListener('submit', guardarTrabajo);
+    $('btn-trabajo-cancelar').addEventListener('click', cerrarFormularioTrabajo);
+    $('form-costo-trabajo').addEventListener('submit', guardarCostoTrabajo);
+    $('btn-costo-trabajo-cancelar').addEventListener('click', cerrarFormularioCostoTrabajo);
     $('form-buscar-presupuesto').addEventListener('submit', buscarPresupuestos);
     $('btn-nuevo-presupuesto').addEventListener('click', function () { abrirFormularioPresupuesto(); });
     $('form-presupuesto').addEventListener('submit', guardarPresupuesto);
@@ -152,7 +166,11 @@
     $('item-presupuesto-precio').addEventListener('input', actualizarSubtotalItemPresupuesto);
     document.querySelectorAll('.presupuestos-filtros .btn-filtro').forEach(function (boton) {
       boton.addEventListener('click', function () {
-        abrirPresupuestos(boton.getAttribute('data-estado'));
+        if (boton.closest('#pantalla-trabajos')) {
+          abrirTrabajos(boton.getAttribute('data-estado'));
+        } else {
+          abrirPresupuestos(boton.getAttribute('data-estado'));
+        }
       });
     });
     document.querySelectorAll('.btn-filtro[data-rango]').forEach(function (boton) {
@@ -179,7 +197,7 @@
       pantallas[clave].classList.toggle('oculto', clave !== nombre);
     });
     const enPrincipal = nombre === 'principal' || nombre === 'agenda' ||
-      nombre === 'directorio' || nombre === 'presupuestos';
+      nombre === 'directorio' || nombre === 'presupuestos' || nombre === 'trabajos';
     $('btn-salir').classList.toggle('oculto', !enPrincipal);
     $('btn-config').classList.toggle('oculto', nombre === 'config');
     window.scrollTo(0, 0);
@@ -2976,6 +2994,763 @@
     evento.preventDefault();
     cerrarDetallePresupuesto();
     cargarPresupuestos();
+  }
+
+  // -------------------------------------------------------------------------
+  // Trabajos realizados
+  // -------------------------------------------------------------------------
+
+  function abrirTrabajos(filtro) {
+    if (filtro !== undefined) {
+      const nuevo = String(filtro || 'TODOS').toUpperCase();
+      estado.trabajosEstado = nuevo || 'TODOS';
+    }
+    estado.trabajosItems = [];
+    estado.trabajoActual = null;
+    $('buscar-trabajo').value = '';
+    cerrarDetalleTrabajo();
+    actualizarFiltrosTrabajos();
+    irA('trabajos');
+    cargarTrabajos();
+  }
+
+  function actualizarFiltrosTrabajos() {
+    document.querySelectorAll('#pantalla-trabajos .presupuestos-filtros .btn-filtro')
+      .forEach(function (boton) {
+        boton.classList.toggle('activo',
+          boton.getAttribute('data-estado') === estado.trabajosEstado);
+      });
+    const titulos = {
+      TODOS: 'Todos los trabajos',
+      PLANIFICADO: 'Trabajos planificados',
+      EN_CURSO: 'Trabajos en curso',
+      FINALIZADO: 'Trabajos finalizados',
+      COBRADO: 'Trabajos cobrados',
+      ANULADO: 'Trabajos anulados'
+    };
+    $('trabajos-titulo').textContent =
+      titulos[estado.trabajosEstado] || titulos.TODOS;
+  }
+
+  async function cargarTrabajos() {
+    if (estado.trabajosCargando) return;
+    estado.trabajosCargando = true;
+
+    const datos = { texto: $('buscar-trabajo').value.trim() };
+    if (estado.trabajosEstado !== 'TODOS') {
+      datos.estado = estado.trabajosEstado;
+    }
+
+    $('trabajos-mensaje').textContent = 'Cargando…';
+    $('trabajos-mensaje').classList.remove('ok');
+    $('trabajos-lista').innerHTML = '';
+
+    try {
+      const resultado = await api('trabajo.buscar', datos);
+      estado.trabajosItems = (resultado && resultado.trabajos) || [];
+      renderizarTrabajos(estado.trabajosItems);
+    } catch (error) {
+      $('trabajos-mensaje').textContent = error.message;
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      }
+    } finally {
+      estado.trabajosCargando = false;
+    }
+  }
+
+  function renderizarTrabajos(items) {
+    const lista = $('trabajos-lista');
+    lista.innerHTML = '';
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = estado.trabajosEstado === 'TODOS'
+        ? 'Todavía no hay trabajos. Se crean al aceptar un presupuesto.'
+        : 'No encontré trabajos con ese filtro.';
+      lista.appendChild(vacio);
+      $('trabajos-mensaje').textContent = '';
+      return;
+    }
+
+    $('trabajos-mensaje').textContent = items.length +
+      (items.length === 1 ? ' trabajo.' : ' trabajos.');
+
+    items.forEach(function (trabajo) {
+      const tarjeta = document.createElement('button');
+      tarjeta.type = 'button';
+      tarjeta.className = 'presupuesto-item';
+
+      const superior = document.createElement('div');
+      superior.className = 'presupuesto-item-superior';
+
+      const identificador = document.createElement('strong');
+      identificador.textContent = trabajo.trabajo_id || 'Trabajo';
+
+      const estadoNodo = document.createElement('span');
+      estadoNodo.className = 'presupuesto-estado ' +
+        estadoTrabajoClase_(trabajo.estado);
+      estadoNodo.textContent = estadoTrabajoLegible_(trabajo.estado);
+
+      superior.appendChild(identificador);
+      superior.appendChild(estadoNodo);
+
+      const cliente = document.createElement('span');
+      cliente.className = 'presupuesto-cliente';
+      cliente.textContent = trabajo.cliente_nombre || trabajo.cliente_id || 'Sin cliente';
+
+      const descripcion = document.createElement('span');
+      descripcion.className = 'presupuesto-descripcion';
+      descripcion.textContent = trabajo.descripcion || 'Sin descripción';
+
+      const meta = document.createElement('span');
+      meta.className = 'presupuesto-meta';
+      const partes = [
+        tipoInstalacionLegible_(trabajo.tipo_instalacion) || 'Sin tipo',
+        trabajo.fecha_inicio ? 'Inicio ' + fechaCorta(trabajo.fecha_inicio) : 'Sin inicio'
+      ];
+      if (trabajo.presupuesto_id) partes.push(trabajo.presupuesto_id);
+      if (Number(trabajo.costo_total) > 0) {
+        partes.push('Costos ' + monedaPresupuesto_(trabajo.costo_total));
+      }
+      meta.textContent = partes.join(' · ');
+
+      const total = document.createElement('span');
+      total.className = 'presupuesto-total';
+      total.textContent = monedaPresupuesto_(trabajo.importe_presupuestado);
+
+      tarjeta.appendChild(superior);
+      tarjeta.appendChild(cliente);
+      tarjeta.appendChild(descripcion);
+      tarjeta.appendChild(meta);
+      tarjeta.appendChild(total);
+      tarjeta.addEventListener('click', function () {
+        abrirDetalleTrabajo(trabajo.trabajo_id);
+      });
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  async function abrirDetalleTrabajo(id) {
+    if (!id) return;
+
+    estado.trabajoActual = null;
+    const contenedor = $('trabajo-detalle');
+    contenedor.classList.remove('oculto');
+    contenedor.innerHTML = '<p class="ayuda">Cargando trabajo…</p>';
+    contenedor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    try {
+      const datos = await api('trabajo.obtener', { trabajo_id: id });
+      renderizarDetalleTrabajo(datos);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      contenedor.innerHTML = '';
+      const mensaje = document.createElement('p');
+      mensaje.className = 'mensaje-error';
+      mensaje.textContent = error.message;
+      contenedor.appendChild(mensaje);
+    }
+  }
+
+  function renderizarDetalleTrabajo(datos) {
+    if (!datos || !datos.trabajo) return;
+    const trabajo = datos.trabajo;
+    const costos = datos.costos || [];
+    const resumen = datos.resumen || trabajo;
+    const editable = puedeEditarTrabajo_(trabajo);
+    const costosEditables = puedeCostosTrabajo_(trabajo);
+    estado.trabajoActual = datos;
+
+    const contenedor = $('trabajo-detalle');
+    contenedor.innerHTML = '';
+
+    const cabecera = document.createElement('div');
+    cabecera.className = 'detalle-cabecera';
+
+    const titulos = document.createElement('div');
+    const titulo = document.createElement('h2');
+    titulo.textContent = trabajo.cliente_nombre || trabajo.cliente_id;
+    const identificador = document.createElement('p');
+    identificador.className = 'detalle-id';
+    identificador.textContent = trabajo.trabajo_id + ' · ' +
+      estadoTrabajoLegible_(trabajo.estado);
+    titulos.appendChild(titulo);
+    titulos.appendChild(identificador);
+
+    const cerrar = document.createElement('button');
+    cerrar.type = 'button';
+    cerrar.className = 'btn-texto';
+    cerrar.textContent = 'Cerrar';
+    cerrar.addEventListener('click', cerrarDetalleTrabajo);
+
+    cabecera.appendChild(titulos);
+    cabecera.appendChild(cerrar);
+    contenedor.appendChild(cabecera);
+
+    const total = document.createElement('p');
+    total.className = 'presupuesto-total-detalle';
+    total.textContent = 'Presupuestado ' +
+      monedaPresupuesto_(trabajo.importe_presupuestado);
+    contenedor.appendChild(total);
+
+    const campos = document.createElement('div');
+    campos.className = 'detalle-campos';
+    agregarCampoDirectorio_(campos, 'Cliente', trabajo.cliente_nombre);
+    agregarCampoDirectorio_(campos, 'Teléfono', trabajo.cliente_telefono);
+    agregarCampoDirectorio_(campos, 'Dirección', trabajo.direccion);
+    agregarCampoDirectorio_(campos, 'Instalación', tipoInstalacionLegible_(trabajo.tipo_instalacion));
+    agregarCampoDirectorio_(campos, 'Descripción', trabajo.descripcion);
+    agregarCampoDirectorio_(campos, 'Inicio', fechaCorta(trabajo.fecha_inicio));
+    agregarCampoDirectorio_(campos, 'Fin', fechaCorta(trabajo.fecha_fin));
+    agregarCampoDirectorio_(campos, 'Presupuesto', trabajo.presupuesto_id);
+    if (datos.presupuesto) {
+      agregarCampoDirectorio_(campos, 'Estado presupuesto',
+        estadoPresupuestoLegible_(datos.presupuesto.estado));
+    }
+    agregarCampoDirectorio_(campos, 'Observaciones', trabajo.observaciones);
+    contenedor.appendChild(campos);
+
+    const economia = document.createElement('div');
+    economia.className = 'trabajo-resumen';
+    agregarResumenTrabajo_(economia, 'Cobrado', monedaPresupuesto_(resumen.importe_cobrado));
+    agregarResumenTrabajo_(economia, 'Costos', monedaPresupuesto_(resumen.costo_total));
+    agregarResumenTrabajo_(economia, 'Resultado', monedaPresupuesto_(resumen.resultado));
+    agregarResumenTrabajo_(economia, 'Saldo a cobrar', monedaPresupuesto_(resumen.saldo_cobro));
+    contenedor.appendChild(economia);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'detalle-acciones presupuesto-acciones';
+
+    if (editable) {
+      agregarAccionPresupuesto_(acciones, 'Editar', 'btn-secundario', function () {
+        abrirFormularioTrabajo(trabajo);
+      });
+    }
+    if (costosEditables) {
+      agregarAccionPresupuesto_(acciones, 'Agregar costo', 'btn-secundario', function () {
+        abrirFormularioCostoTrabajo();
+      });
+    }
+    if (puedeEscribir() && trabajo.estado === 'PLANIFICADO') {
+      agregarAccionPresupuesto_(acciones, 'Iniciar', 'btn-principal', function () {
+        cambiarEstadoTrabajo('EN_CURSO');
+      });
+    }
+    if (puedeEscribir() && trabajo.estado === 'EN_CURSO') {
+      agregarAccionPresupuesto_(acciones, 'Finalizar', 'btn-principal', function () {
+        cambiarEstadoTrabajo('FINALIZADO');
+      });
+    }
+    if (puedeEscribir() && trabajo.estado === 'FINALIZADO') {
+      agregarAccionPresupuesto_(acciones, 'Marcar cobrado', 'btn-principal', function () {
+        cambiarEstadoTrabajo('COBRADO');
+      });
+    }
+    if (esPropietario() && ['PLANIFICADO', 'EN_CURSO', 'FINALIZADO'].indexOf(trabajo.estado) !== -1) {
+      agregarAccionPresupuesto_(acciones, 'Anular', 'btn-peligro', function () {
+        cambiarEstadoTrabajo('ANULADO');
+      });
+    }
+    if (!puedeEscribir()) {
+      const aviso = document.createElement('p');
+      aviso.className = 'ayuda';
+      aviso.textContent = 'Solo lectura: no podés modificar trabajos.';
+      acciones.appendChild(aviso);
+    }
+    contenedor.appendChild(acciones);
+
+    if (trabajo.estado === 'COBRADO') {
+      const aviso = document.createElement('p');
+      aviso.className = 'ayuda';
+      aviso.textContent = 'Trabajo cerrado. Los cobros y movimientos se gestionan en control económico.';
+      contenedor.appendChild(aviso);
+    }
+
+    const costosTitulo = document.createElement('h3');
+    costosTitulo.textContent = 'Costos reales';
+    contenedor.appendChild(costosTitulo);
+
+    if (!costos.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'El trabajo todavía no tiene costos cargados.';
+      contenedor.appendChild(vacio);
+    } else {
+      const listaCostos = document.createElement('div');
+      listaCostos.className = 'presupuesto-items';
+      costos.forEach(function (costo) {
+        listaCostos.appendChild(crearLineaCostoTrabajo_(costo, costosEditables));
+      });
+      contenedor.appendChild(listaCostos);
+    }
+
+    const historialTitulo = document.createElement('h3');
+    historialTitulo.textContent = 'Historial de cambios';
+    contenedor.appendChild(historialTitulo);
+
+    const historial = datos.historial || [];
+    if (!historial.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'Todavía no hay cambios registrados.';
+      contenedor.appendChild(vacio);
+      return;
+    }
+
+    const listaHistorial = document.createElement('div');
+    listaHistorial.className = 'historial-lista';
+    historial.slice(0, 30).forEach(function (log) {
+      const item = document.createElement('div');
+      item.className = 'historial-item';
+
+      const linea = document.createElement('div');
+      linea.className = 'historial-linea';
+      const accion = document.createElement('strong');
+      accion.textContent = accionTrabajoLegible_(log.accion);
+      const fecha = document.createElement('span');
+      fecha.textContent = fechaHoraCorta(log.fecha);
+      linea.appendChild(accion);
+      linea.appendChild(fecha);
+
+      const detalle = document.createElement('p');
+      detalle.textContent = resumenDetalleLogTrabajo_(log.detalle);
+
+      const meta = document.createElement('span');
+      meta.className = 'historial-meta';
+      meta.textContent = (log.usuario || '') + (log.origen ? ' · ' + log.origen : '');
+
+      item.appendChild(linea);
+      if (detalle.textContent) item.appendChild(detalle);
+      item.appendChild(meta);
+      listaHistorial.appendChild(item);
+    });
+    contenedor.appendChild(listaHistorial);
+  }
+
+  function agregarResumenTrabajo_(contenedor, etiqueta, valor) {
+    const bloque = document.createElement('div');
+    bloque.className = 'trabajo-resumen-item';
+    const nombre = document.createElement('span');
+    nombre.textContent = etiqueta;
+    const dato = document.createElement('strong');
+    dato.textContent = valor;
+    bloque.appendChild(nombre);
+    bloque.appendChild(dato);
+    contenedor.appendChild(bloque);
+  }
+
+  function crearLineaCostoTrabajo_(costo, puedeEditar) {
+    const linea = document.createElement('div');
+    linea.className = 'presupuesto-item-linea' +
+      (costo.estado === 'ANULADO' ? ' anulado' : '');
+
+    const cuerpo = document.createElement('div');
+    cuerpo.className = 'presupuesto-item-cuerpo';
+
+    const descripcion = document.createElement('strong');
+    descripcion.textContent = costo.descripcion;
+
+    const meta = document.createElement('span');
+    meta.className = 'presupuesto-item-meta';
+    const partes = [
+      tipoCostoTrabajoLegible_(costo.tipo),
+      'Cantidad ' + costo.cantidad,
+      fechaCorta(costo.fecha)
+    ];
+    if (costo.proveedor_nombre) partes.push(costo.proveedor_nombre);
+    if (costo.estado === 'ANULADO') partes.push('ANULADO');
+    meta.textContent = partes.join(' · ');
+
+    cuerpo.appendChild(descripcion);
+    cuerpo.appendChild(meta);
+
+    const importe = document.createElement('span');
+    importe.className = 'presupuesto-item-subtotal';
+    importe.textContent = monedaPresupuesto_(costo.importe);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'presupuesto-item-acciones';
+    if (puedeEditar && puedeEscribir() && costo.estado !== 'ANULADO') {
+      const editar = document.createElement('button');
+      editar.type = 'button';
+      editar.className = 'btn-reprogramar';
+      editar.textContent = 'Editar';
+      editar.addEventListener('click', function () {
+        abrirFormularioCostoTrabajo(costo);
+      });
+
+      const anular = document.createElement('button');
+      anular.type = 'button';
+      anular.className = 'btn-anular';
+      anular.textContent = 'Anular';
+      anular.addEventListener('click', function () {
+        anularCostoTrabajo(costo);
+      });
+
+      acciones.appendChild(editar);
+      acciones.appendChild(anular);
+    }
+
+    linea.appendChild(cuerpo);
+    linea.appendChild(importe);
+    if (acciones.childNodes.length) linea.appendChild(acciones);
+    return linea;
+  }
+
+  function abrirFormularioTrabajo(trabajo) {
+    if (!trabajo || !puedeEditarTrabajo_(trabajo)) return;
+    estado.trabajoActual = estado.trabajoActual || { trabajo: trabajo };
+    $('trabajo-form-titulo').textContent = 'Editar trabajo';
+    $('trabajo-form-contexto').textContent = trabajo.trabajo_id + ' · ' +
+      (trabajo.cliente_nombre || '');
+    $('trabajo-direccion').value = trabajo.direccion || '';
+    $('trabajo-fecha-inicio').value = trabajo.fecha_inicio || '';
+    $('trabajo-fecha-fin').value = trabajo.fecha_fin || '';
+    $('trabajo-tipo').value = trabajo.tipo_instalacion || '';
+    $('trabajo-descripcion').value = trabajo.descripcion || '';
+    $('trabajo-observaciones').value = trabajo.observaciones || '';
+    $('trabajo-form-mensaje').textContent = '';
+    mostrarDialogo_('dialogo-trabajo');
+    setTimeout(function () { $('trabajo-direccion').focus(); }, 50);
+  }
+
+  function cerrarFormularioTrabajo() {
+    $('trabajo-form-mensaje').textContent = '';
+    ocultarDialogo_('dialogo-trabajo');
+  }
+
+  async function guardarTrabajo(evento) {
+    evento.preventDefault();
+    const actual = estado.trabajoActual;
+    if (!actual || !actual.trabajo) return;
+
+    const entrada = {
+      trabajo_id: actual.trabajo.trabajo_id,
+      direccion: $('trabajo-direccion').value.trim(),
+      fecha_inicio: $('trabajo-fecha-inicio').value,
+      fecha_fin: $('trabajo-fecha-fin').value,
+      tipo_instalacion: $('trabajo-tipo').value,
+      descripcion: $('trabajo-descripcion').value.trim(),
+      observaciones: $('trabajo-observaciones').value.trim()
+    };
+
+    if (!entrada.direccion) {
+      $('trabajo-form-mensaje').textContent = 'Escribí la dirección del trabajo.';
+      return;
+    }
+    if (entrada.fecha_inicio && entrada.fecha_fin &&
+        entrada.fecha_fin < entrada.fecha_inicio) {
+      $('trabajo-form-mensaje').textContent =
+        'La fecha de fin no puede ser anterior a la de inicio.';
+      return;
+    }
+
+    const boton = $('btn-trabajo-guardar');
+    $('trabajo-form-mensaje').textContent = '';
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      const resultado = await api('trabajo.actualizar', entrada);
+      cerrarFormularioTrabajo();
+      renderizarDetalleTrabajo(resultado);
+      await cargarTrabajos();
+      $('trabajos-mensaje').textContent = 'Trabajo actualizado.';
+      $('trabajos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioTrabajo();
+        manejarError(error);
+      } else {
+        $('trabajo-form-mensaje').textContent = error.message;
+      }
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar';
+    }
+  }
+
+  async function abrirFormularioCostoTrabajo(costo) {
+    const actual = estado.trabajoActual;
+    if (!actual || !actual.trabajo || !puedeCostosTrabajo_(actual.trabajo)) return;
+
+    const edicion = !!costo;
+    estado.costoTrabajoEditando = edicion ? costo : null;
+    $('costo-trabajo-titulo').textContent = edicion ? 'Editar costo' : 'Agregar costo';
+    $('costo-trabajo-contexto').textContent = actual.trabajo.trabajo_id +
+      ' · ' + (actual.trabajo.cliente_nombre || '');
+    $('costo-trabajo-tipo').value = edicion ? costo.tipo : 'MATERIAL';
+    $('costo-trabajo-descripcion').value = edicion ? costo.descripcion : '';
+    $('costo-trabajo-cantidad').value = edicion ? costo.cantidad : '1';
+    $('costo-trabajo-importe').value = edicion ? costo.importe : '';
+    $('costo-trabajo-fecha').value = edicion ? (costo.fecha || fechaISO(new Date())) : fechaISO(new Date());
+    $('costo-trabajo-mensaje').textContent = '';
+
+    const select = $('costo-trabajo-proveedor');
+    select.innerHTML = '<option value="">Cargando proveedores…</option>';
+    mostrarDialogo_('dialogo-costo-trabajo');
+
+    try {
+      const proveedores = await api('proveedor.buscar', { texto: '' });
+      estado.proveedoresFormulario = proveedores || [];
+    } catch (error) {
+      estado.proveedoresFormulario = [];
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioCostoTrabajo();
+        manejarError(error);
+        return;
+      }
+      $('costo-trabajo-mensaje').textContent = error.message;
+    }
+
+    const lista = (estado.proveedoresFormulario || []).slice();
+    if (edicion && costo.proveedor_id &&
+        !lista.some(function (p) { return p.proveedor_id === costo.proveedor_id; })) {
+      lista.unshift({
+        proveedor_id: costo.proveedor_id,
+        nombre_comercial: costo.proveedor_nombre || costo.proveedor_id
+      });
+    }
+
+    select.innerHTML = '';
+    const sinProveedor = document.createElement('option');
+    sinProveedor.value = '';
+    sinProveedor.textContent = 'Sin proveedor';
+    select.appendChild(sinProveedor);
+    lista.forEach(function (proveedor) {
+      const opcion = document.createElement('option');
+      opcion.value = proveedor.proveedor_id;
+      opcion.textContent = proveedor.nombre_comercial || proveedor.proveedor_id;
+      select.appendChild(opcion);
+    });
+    select.value = edicion ? (costo.proveedor_id || '') : '';
+    setTimeout(function () { $('costo-trabajo-descripcion').focus(); }, 50);
+  }
+
+  function cerrarFormularioCostoTrabajo() {
+    estado.costoTrabajoEditando = null;
+    $('costo-trabajo-mensaje').textContent = '';
+    ocultarDialogo_('dialogo-costo-trabajo');
+  }
+
+  async function guardarCostoTrabajo(evento) {
+    evento.preventDefault();
+    const actual = estado.trabajoActual;
+    if (!actual || !actual.trabajo) return;
+
+    const costo = {
+      tipo: $('costo-trabajo-tipo').value,
+      descripcion: $('costo-trabajo-descripcion').value.trim(),
+      cantidad: Number($('costo-trabajo-cantidad').value),
+      importe: Number($('costo-trabajo-importe').value),
+      proveedor_id: $('costo-trabajo-proveedor').value,
+      fecha: $('costo-trabajo-fecha').value
+    };
+
+    if (!costo.descripcion) {
+      $('costo-trabajo-mensaje').textContent = 'Escribí la descripción del costo.';
+      return;
+    }
+    if (!(costo.cantidad > 0)) {
+      $('costo-trabajo-mensaje').textContent = 'La cantidad debe ser mayor a cero.';
+      return;
+    }
+    if (!(costo.importe > 0)) {
+      $('costo-trabajo-mensaje').textContent = 'El importe debe ser mayor a cero.';
+      return;
+    }
+    if (!costo.fecha) {
+      $('costo-trabajo-mensaje').textContent = 'Elegí la fecha del costo.';
+      return;
+    }
+
+    const editando = estado.costoTrabajoEditando;
+    const boton = $('btn-costo-trabajo-guardar');
+    $('costo-trabajo-mensaje').textContent = '';
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      const cuerpo = editando
+        ? { costo_id: editando.costo_id, costo: costo }
+        : { trabajo_id: actual.trabajo.trabajo_id, costo: costo };
+      const resultado = await api(
+        editando ? 'trabajo.costo.actualizar' : 'trabajo.costo.agregar',
+        cuerpo
+      );
+      cerrarFormularioCostoTrabajo();
+      renderizarDetalleTrabajo(resultado);
+      await cargarTrabajos();
+      $('trabajos-mensaje').textContent = editando
+        ? 'Costo actualizado.'
+        : 'Costo agregado.';
+      $('trabajos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioCostoTrabajo();
+        manejarError(error);
+      } else {
+        $('costo-trabajo-mensaje').textContent = error.message;
+      }
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar costo';
+    }
+  }
+
+  async function anularCostoTrabajo(costo) {
+    if (!costo || !puedeEscribir()) return;
+    const seguro = window.confirm('¿Anular el costo «' + costo.descripcion + '»?\n\n' +
+      'No se borra: queda marcado como ANULADO y deja de sumar al total.');
+    if (!seguro) return;
+
+    try {
+      const resultado = await api('trabajo.costo.anular', {
+        costo_id: costo.costo_id,
+        motivo: 'Anulado desde la pantalla'
+      });
+      renderizarDetalleTrabajo(resultado);
+      await cargarTrabajos();
+      $('trabajos-mensaje').textContent = 'Costo anulado.';
+      $('trabajos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
+  async function cambiarEstadoTrabajo(nuevoEstado) {
+    const actual = estado.trabajoActual;
+    if (!actual || !actual.trabajo) return;
+    const id = actual.trabajo.trabajo_id;
+
+    const mensajes = {
+      EN_CURSO: '¿Iniciar el trabajo ' + id + '?',
+      FINALIZADO: '¿Marcar el trabajo ' + id + ' como finalizado?',
+      COBRADO: '¿Marcar el trabajo ' + id + ' como cobrado?\n\n' +
+        'Los cobros y movimientos se registran en control económico.',
+      ANULADO: '¿Anular el trabajo ' + id + '?\n\nNo se borra: queda marcado como ANULADO.'
+    };
+    if (!window.confirm(mensajes[nuevoEstado] || '¿Cambiar el estado del trabajo?')) return;
+
+    try {
+      const resultado = await api('trabajo.estado', {
+        trabajo_id: id,
+        estado: nuevoEstado,
+        motivo: 'Cambio desde la pantalla'
+      });
+      renderizarDetalleTrabajo(resultado);
+      await cargarTrabajos();
+      $('trabajos-mensaje').textContent = 'Estado actualizado: ' +
+        estadoTrabajoLegible_(nuevoEstado) + '.';
+      $('trabajos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
+  function cerrarDetalleTrabajo() {
+    estado.trabajoActual = null;
+    const contenedor = $('trabajo-detalle');
+    contenedor.innerHTML = '';
+    contenedor.classList.add('oculto');
+  }
+
+  function buscarTrabajos(evento) {
+    evento.preventDefault();
+    cerrarDetalleTrabajo();
+    cargarTrabajos();
+  }
+
+  function puedeEditarTrabajo_(trabajo) {
+    return puedeEscribir() && trabajo &&
+      ['ANULADO', 'COBRADO'].indexOf(String(trabajo.estado || '').toUpperCase()) === -1;
+  }
+
+  function puedeCostosTrabajo_(trabajo) {
+    return puedeEscribir() && trabajo &&
+      ['ANULADO', 'COBRADO'].indexOf(String(trabajo.estado || '').toUpperCase()) === -1;
+  }
+
+  function estadoTrabajoLegible_(estado) {
+    const nombres = {
+      PLANIFICADO: 'Planificado',
+      EN_CURSO: 'En curso',
+      FINALIZADO: 'Finalizado',
+      COBRADO: 'Cobrado',
+      ANULADO: 'Anulado'
+    };
+    const clave = String(estado || '').toUpperCase();
+    return nombres[clave] || clave || 'Sin estado';
+  }
+
+  function estadoTrabajoClase_(estado) {
+    return 'presupuesto-estado-' + String(estado || '').toLowerCase();
+  }
+
+  function tipoCostoTrabajoLegible_(tipo) {
+    const nombres = {
+      MATERIAL: 'Material',
+      MANO_DE_OBRA: 'Mano de obra',
+      GASTO_EXTRA: 'Gasto extra'
+    };
+    return nombres[String(tipo || '').toUpperCase()] || String(tipo || '');
+  }
+
+  function accionTrabajoLegible_(accion) {
+    const nombres = {
+      ALTA: 'Alta',
+      MODIFICACION: 'Modificación',
+      ESTADO: 'Cambio de estado',
+      COSTO_ALTA: 'Costo agregado',
+      COSTO_MODIFICACION: 'Costo modificado',
+      COSTO_ANULACION: 'Costo anulado'
+    };
+    const clave = String(accion || '').toUpperCase();
+    return nombres[clave] || clave || 'Cambio';
+  }
+
+  function resumenDetalleLogTrabajo_(texto) {
+    if (!texto) return '';
+    try {
+      const datos = JSON.parse(texto);
+      const nombres = {
+        anterior: 'Antes',
+        nuevo: 'Después',
+        motivo: 'Motivo',
+        tipo: 'Tipo',
+        descripcion: 'Descripción',
+        cantidad: 'Cantidad',
+        importe: 'Importe',
+        fecha: 'Fecha',
+        fecha_inicio: 'Inicio',
+        fecha_fin: 'Fin',
+        direccion: 'Dirección',
+        costo_id: 'Costo',
+        proveedor_id: 'Proveedor'
+      };
+      return Object.keys(datos).slice(0, 6).map(function (clave) {
+        const valor = datos[clave];
+        if (valor === undefined || valor === null || valor === '') return '';
+        const etiqueta = nombres[clave] || clave.replace(/_/g, ' ');
+        if (typeof valor === 'object') return etiqueta + ': ' + JSON.stringify(valor);
+        return etiqueta + ': ' + String(valor);
+      }).filter(function (parte) { return !!parte; }).join(' · ');
+    } catch (error) {
+      return String(texto).slice(0, 240);
+    }
   }
 
   function puedeEscribir() {
