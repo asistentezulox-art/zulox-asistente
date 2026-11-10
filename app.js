@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.0';
+  const VERSION = '0.7.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -2642,6 +2642,8 @@
     $('presupuesto-descripcion').value = edicion
       ? (presupuesto.descripcion || '')
       : '';
+    $('presupuesto-importe').value = '';
+    $('presupuesto-importe-campo').classList.toggle('oculto', edicion);
     $('presupuesto-observaciones').value = edicion
       ? (presupuesto.observaciones || '')
       : '';
@@ -2710,6 +2712,7 @@
       validez_dias: Number($('presupuesto-validez').value),
       observaciones: $('presupuesto-observaciones').value.trim()
     };
+    const importe = Number($('presupuesto-importe').value) || 0;
 
     if (!entrada.cliente_id) {
       $('presupuesto-form-mensaje').textContent = 'Elegí un cliente.';
@@ -2718,6 +2721,19 @@
     if (!entrada.descripcion) {
       $('presupuesto-form-mensaje').textContent = 'Escribí una descripción.';
       return;
+    }
+    if (importe < 0) {
+      $('presupuesto-form-mensaje').textContent = 'El monto no es válido.';
+      return;
+    }
+    if (!edicion && importe > 0) {
+      entrada.items = [{
+        tipo: 'OTRO',
+        descripcion: entrada.descripcion.slice(0, 300),
+        cantidad: 1,
+        unidad: 'GLOBAL',
+        precio_unitario: importe
+      }];
     }
     if (edicion) entrada.presupuesto_id = edicion.presupuesto_id;
 

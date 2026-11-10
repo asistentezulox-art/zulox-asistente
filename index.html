@@ -332,6 +332,15 @@
       <label for="presupuesto-descripcion">Descripción</label>
       <textarea id="presupuesto-descripcion" maxlength="500" rows="3" required></textarea>
 
+      <div id="presupuesto-importe-campo">
+        <label for="presupuesto-importe">Monto total estimado (opcional)</label>
+        <input id="presupuesto-importe" type="number" min="0" step="0.01"
+               inputmode="decimal" placeholder="Ej. 70000">
+        <p class="ayuda">Se guarda como un ítem global. Si vas a detallar
+          materiales y mano de obra, dejalo vacío y agregá los ítems desde el
+          detalle.</p>
+      </div>
+
       <label for="presupuesto-observaciones">Observaciones</label>
       <textarea id="presupuesto-observaciones" maxlength="500" rows="2"></textarea>
 
@@ -390,7 +399,7 @@
 
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.7.0</span>
+    <span id="version-pie">v0.7.1</span>
   </footer>
 
   <script src="app.js"></script>
