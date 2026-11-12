@@ -554,9 +554,23 @@
     </form>
   </dialog>
 
+  <section id="presupuesto-pdf" class="pdf-overlay oculto" aria-hidden="true">
+    <div class="pdf-barra">
+      <div class="pdf-barra-texto">
+        <strong>Vista para enviar</strong>
+        <span>Tocá “Imprimir / Guardar PDF” y elegí “Guardar como PDF”.</span>
+      </div>
+      <div class="pdf-barra-acciones">
+        <button id="btn-presupuesto-pdf-imprimir" type="button" class="btn-principal">Imprimir / Guardar PDF</button>
+        <button id="btn-presupuesto-pdf-cerrar" type="button" class="btn-secundario">Cerrar</button>
+      </div>
+    </div>
+    <div id="presupuesto-pdf-documento" class="pdf-hoja"></div>
+  </section>
+
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.8.1</span>
+    <span id="version-pie">v0.8.2</span>
   </footer>
 
   <script src="app.js"></script>

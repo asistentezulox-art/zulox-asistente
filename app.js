@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.1';
+  const VERSION = '0.8.2';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -163,6 +163,16 @@
     $('btn-nuevo-presupuesto').addEventListener('click', function () { abrirFormularioPresupuesto(); });
     $('form-presupuesto').addEventListener('submit', guardarPresupuesto);
     $('btn-presupuesto-cancelar').addEventListener('click', cerrarFormularioPresupuesto);
+    $('btn-presupuesto-pdf-imprimir').addEventListener('click', imprimirPresupuestoPdf);
+    $('btn-presupuesto-pdf-cerrar').addEventListener('click', cerrarPresupuestoPdf);
+    $('presupuesto-pdf').addEventListener('click', function (evento) {
+      if (evento.target === this) cerrarPresupuestoPdf();
+    });
+    document.addEventListener('keydown', function (evento) {
+      if (evento.key !== 'Escape') return;
+      const pdf = $('presupuesto-pdf');
+      if (pdf && !pdf.classList.contains('oculto')) cerrarPresupuestoPdf();
+    });
     $('presupuesto-cliente').addEventListener('change', function () {
       actualizarDireccionTrabajoSugerida_(true);
     });
@@ -2540,6 +2550,15 @@
       });
     }
 
+    const tieneItemsActivos = items.some(function (item) {
+      return String(item.estado || '').toUpperCase() !== 'ANULADO';
+    });
+    if (presupuesto.estado !== 'ANULADO' && tieneItemsActivos) {
+      agregarAccionPresupuesto_(acciones, 'PDF para cliente', 'btn-principal', function () {
+        abrirPresupuestoPdf(datos);
+      });
+    }
+
     if (!puedeEscribir()) {
       const aviso = document.createElement('p');
       aviso.className = 'ayuda';
@@ -2700,6 +2719,193 @@
     boton.textContent = texto;
     boton.addEventListener('click', accion);
     contenedor.appendChild(boton);
+  }
+
+  function crearElementoPdf_(etiqueta, clase, texto) {
+    const elemento = document.createElement(etiqueta);
+    if (clase) elemento.className = clase;
+    if (texto !== undefined && texto !== null) elemento.textContent = String(texto);
+    return elemento;
+  }
+
+  function agregarDatoPdf_(contenedor, etiqueta, valor) {
+    const texto = String(valor || '').trim();
+    if (!texto) return;
+    const dato = crearElementoPdf_('div', 'pdf-dato');
+    dato.appendChild(crearElementoPdf_('span', 'pdf-dato-etiqueta', etiqueta));
+    dato.appendChild(crearElementoPdf_('strong', 'pdf-dato-valor', texto));
+    contenedor.appendChild(dato);
+  }
+
+  function cantidadPdf_(valor) {
+    const numero = Number(valor) || 0;
+    try {
+      return numero.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+    } catch (error) {
+      return String(numero);
+    }
+  }
+
+  function abrirPresupuestoPdf(datos) {
+    if (!datos || !datos.presupuesto) return;
+    const presupuesto = datos.presupuesto;
+    const items = (datos.items || []).filter(function (item) {
+      return String(item.estado || '').toUpperCase() !== 'ANULADO';
+    });
+    const documento = $('presupuesto-pdf-documento');
+    documento.innerHTML = '';
+
+    const fechaEmision = presupuesto.fecha_elaboracion || presupuesto.fecha_solicitud;
+    documento.setAttribute('data-nombre',
+      'Presupuesto ' + (presupuesto.presupuesto_id || '') + ' - ' +
+      (presupuesto.cliente_nombre || 'Cliente'));
+
+    const cabecera = crearElementoPdf_('div', 'pdf-cabecera');
+    const marca = crearElementoPdf_('div', 'pdf-marca');
+    marca.appendChild(crearElementoPdf_('span', 'pdf-logo', 'Z'));
+    marca.appendChild(crearElementoPdf_('strong', 'pdf-marca-nombre', 'ZULOX'));
+    const numero = crearElementoPdf_('div', 'pdf-numero');
+    numero.appendChild(crearElementoPdf_('span', null, 'PRESUPUESTO'));
+    numero.appendChild(crearElementoPdf_('strong', null, presupuesto.presupuesto_id || ''));
+    numero.appendChild(crearElementoPdf_('small', null,
+      fechaEmision ? 'Emitido el ' + fechaCorta(fechaEmision) : ''));
+    cabecera.appendChild(marca);
+    cabecera.appendChild(numero);
+    documento.appendChild(cabecera);
+
+    const destinatario = crearElementoPdf_('div', 'pdf-destinatario');
+    destinatario.appendChild(crearElementoPdf_('span', null, 'Presupuesto preparado para'));
+    destinatario.appendChild(crearElementoPdf_('h1', null,
+      presupuesto.cliente_nombre || presupuesto.cliente_id || 'Cliente'));
+    const contacto = [];
+    if (presupuesto.cliente_telefono) contacto.push('Tel. ' + presupuesto.cliente_telefono);
+    if (presupuesto.cliente_direccion) contacto.push(presupuesto.cliente_direccion);
+    if (contacto.length) destinatario.appendChild(crearElementoPdf_('p', null, contacto.join(' · ')));
+    documento.appendChild(destinatario);
+
+    const datosTrabajo = crearElementoPdf_('div', 'pdf-datos');
+    agregarDatoPdf_(datosTrabajo, 'Dirección del trabajo',
+      presupuesto.direccion_trabajo || presupuesto.cliente_direccion);
+    agregarDatoPdf_(datosTrabajo, 'Tipo de instalación',
+      tipoInstalacionLegible_(presupuesto.tipo_instalacion));
+    agregarDatoPdf_(datosTrabajo, 'Fecha de solicitud',
+      fechaCorta(presupuesto.fecha_solicitud));
+    agregarDatoPdf_(datosTrabajo, 'Validez',
+      presupuesto.validez_dias ? presupuesto.validez_dias + ' días' : '');
+    if (presupuesto.fecha_vencimiento) {
+      agregarDatoPdf_(datosTrabajo, 'Válido hasta',
+        fechaCorta(presupuesto.fecha_vencimiento));
+    }
+    documento.appendChild(datosTrabajo);
+
+    if (presupuesto.descripcion) {
+      const seccionDescripcion = crearElementoPdf_('section', 'pdf-seccion');
+      seccionDescripcion.appendChild(crearElementoPdf_('h2', null, 'Descripción del trabajo'));
+      seccionDescripcion.appendChild(crearElementoPdf_('p', 'pdf-descripcion',
+        presupuesto.descripcion));
+      documento.appendChild(seccionDescripcion);
+    }
+
+    const seccionDetalle = crearElementoPdf_('section', 'pdf-seccion');
+    seccionDetalle.appendChild(crearElementoPdf_('h2', null, 'Detalle del presupuesto'));
+    const envoltura = crearElementoPdf_('div', 'pdf-tabla-envoltura');
+    const tabla = crearElementoPdf_('table', 'pdf-tabla');
+    const thead = document.createElement('thead');
+    const filaCabecera = document.createElement('tr');
+    [
+      { texto: 'Descripción', clase: '' },
+      { texto: 'Cant.', clase: 'num' },
+      { texto: 'Unidad', clase: 'num' },
+      { texto: 'Precio unit.', clase: 'num' },
+      { texto: 'Subtotal', clase: 'num' }
+    ].forEach(function (columna) {
+      const th = crearElementoPdf_('th', columna.clase || null, columna.texto);
+      filaCabecera.appendChild(th);
+    });
+    thead.appendChild(filaCabecera);
+    tabla.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    items.forEach(function (item) {
+      const fila = document.createElement('tr');
+      const descripcion = document.createElement('td');
+      descripcion.appendChild(crearElementoPdf_('strong', null, item.descripcion || ''));
+      descripcion.appendChild(crearElementoPdf_('span', 'pdf-item-tipo',
+        tipoItemPresupuestoLegible_(item.tipo)));
+      fila.appendChild(descripcion);
+      fila.appendChild(crearElementoPdf_('td', 'num', cantidadPdf_(item.cantidad)));
+      fila.appendChild(crearElementoPdf_('td', 'num', item.unidad || ''));
+      fila.appendChild(crearElementoPdf_('td', 'num', monedaPresupuesto_(item.precio_unitario)));
+      fila.appendChild(crearElementoPdf_('td', 'num', monedaPresupuesto_(item.subtotal)));
+      tbody.appendChild(fila);
+    });
+    if (!items.length) {
+      const fila = document.createElement('tr');
+      const descripcion = document.createElement('td');
+      descripcion.setAttribute('colspan', '4');
+      descripcion.textContent = presupuesto.descripcion || 'Trabajo según descripción';
+      fila.appendChild(descripcion);
+      fila.appendChild(crearElementoPdf_('td', 'num', monedaPresupuesto_(presupuesto.total)));
+      tbody.appendChild(fila);
+    }
+    tabla.appendChild(tbody);
+    envoltura.appendChild(tabla);
+    seccionDetalle.appendChild(envoltura);
+
+    const total = crearElementoPdf_('div', 'pdf-total');
+    total.appendChild(crearElementoPdf_('span', null, 'Total estimado'));
+    total.appendChild(crearElementoPdf_('strong', null, monedaPresupuesto_(presupuesto.total)));
+    seccionDetalle.appendChild(total);
+    documento.appendChild(seccionDetalle);
+
+    if (presupuesto.observaciones) {
+      const seccionObservaciones = crearElementoPdf_('section', 'pdf-seccion');
+      seccionObservaciones.appendChild(crearElementoPdf_('h2', null, 'Observaciones'));
+      seccionObservaciones.appendChild(crearElementoPdf_('p', 'pdf-observaciones',
+        presupuesto.observaciones));
+      documento.appendChild(seccionObservaciones);
+    }
+
+    const nota = crearElementoPdf_('p', 'pdf-nota',
+      'Valores expresados en pesos argentinos.' +
+      (presupuesto.validez_dias
+        ? ' Presupuesto válido por ' + presupuesto.validez_dias + ' días.'
+        : ''));
+    documento.appendChild(nota);
+
+    const pie = crearElementoPdf_('div', 'pdf-pie');
+    pie.appendChild(crearElementoPdf_('span', null, 'ZULOX'));
+    pie.appendChild(crearElementoPdf_('span', null,
+      presupuesto.presupuesto_id || 'Presupuesto'));
+    documento.appendChild(pie);
+
+    const overlay = $('presupuesto-pdf');
+    overlay.classList.remove('oculto');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('pdf-abierto');
+    $('btn-presupuesto-pdf-imprimir').focus();
+  }
+
+  function imprimirPresupuestoPdf() {
+    const documento = $('presupuesto-pdf-documento');
+    if (!documento || !documento.childNodes.length) return;
+    const tituloAnterior = document.title;
+    const nombre = documento.getAttribute('data-nombre') || 'Presupuesto';
+    document.title = nombre;
+    const restaurar = function () {
+      document.title = tituloAnterior;
+      window.removeEventListener('afterprint', restaurar);
+    };
+    window.addEventListener('afterprint', restaurar);
+    window.print();
+  }
+
+  function cerrarPresupuestoPdf() {
+    const overlay = $('presupuesto-pdf');
+    overlay.classList.add('oculto');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('pdf-abierto');
+    $('presupuesto-pdf-documento').innerHTML = '';
   }
 
   async function abrirFormularioPresupuesto(presupuesto) {
