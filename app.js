@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.3';
+  const VERSION = '0.9.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -76,6 +76,11 @@
     trabajoDetalleSolicitud: 0,
     costoTrabajoEditando: null,
     adicionalTrabajoEditando: null,
+    economiaRango: 'mes',
+    economiaDatos: null,
+    economiaCargando: false,
+    economiaSolicitud: 0,
+    cobroIdempotencia: '',
     proveedoresFormulario: [],
     proveedoresFormularioCargados: false
   };
@@ -90,7 +95,8 @@
     agenda: $('pantalla-agenda'),
     directorio: $('pantalla-directorio'),
     presupuestos: $('pantalla-presupuestos'),
-    trabajos: $('pantalla-trabajos')
+    trabajos: $('pantalla-trabajos'),
+    economia: $('pantalla-economia')
   };
 
   function iniciar() {
@@ -152,6 +158,14 @@
     $('btn-presupuestos-volver').addEventListener('click', function () { irA('principal'); });
     $('btn-trabajos').addEventListener('click', function () { abrirTrabajos(); });
     $('btn-trabajos-volver').addEventListener('click', function () { irA('principal'); });
+    $('btn-economia').addEventListener('click', function () { abrirEconomia('mes'); });
+    $('btn-economia-volver').addEventListener('click', function () { irA('principal'); });
+    $('form-cobro').addEventListener('submit', registrarCobro);
+    ['cobro-trabajo', 'cobro-importe', 'cobro-fecha', 'cobro-medio',
+      'cobro-estado', 'cobro-descripcion'].forEach(function (id) {
+      $(id).addEventListener('input', function () { estado.cobroIdempotencia = ''; });
+      $(id).addEventListener('change', function () { estado.cobroIdempotencia = ''; });
+    });
     $('form-buscar-trabajo').addEventListener('submit', buscarTrabajos);
     $('form-trabajo').addEventListener('submit', guardarTrabajo);
     $('btn-trabajo-cancelar').addEventListener('click', cerrarFormularioTrabajo);
@@ -180,20 +194,28 @@
     $('btn-item-presupuesto-cancelar').addEventListener('click', cerrarFormularioItemPresupuesto);
     $('item-presupuesto-cantidad').addEventListener('input', actualizarSubtotalItemPresupuesto);
     $('item-presupuesto-precio').addEventListener('input', actualizarSubtotalItemPresupuesto);
-    document.querySelectorAll('.presupuestos-filtros .btn-filtro').forEach(function (boton) {
-      boton.addEventListener('click', function () {
-        if (boton.closest('#pantalla-trabajos')) {
-          abrirTrabajos(boton.getAttribute('data-estado'));
-        } else {
-          abrirPresupuestos(boton.getAttribute('data-estado'));
-        }
+    document.querySelectorAll('.presupuestos-filtros .btn-filtro[data-estado]')
+      .forEach(function (boton) {
+        boton.addEventListener('click', function () {
+          if (boton.closest('#pantalla-trabajos')) {
+            abrirTrabajos(boton.getAttribute('data-estado'));
+          } else {
+            abrirPresupuestos(boton.getAttribute('data-estado'));
+          }
+        });
       });
-    });
-    document.querySelectorAll('.btn-filtro[data-rango]').forEach(function (boton) {
-      boton.addEventListener('click', function () {
-        abrirAgenda(boton.getAttribute('data-rango'));
+    document.querySelectorAll('#pantalla-agenda .btn-filtro[data-rango]')
+      .forEach(function (boton) {
+        boton.addEventListener('click', function () {
+          abrirAgenda(boton.getAttribute('data-rango'));
+        });
       });
-    });
+    document.querySelectorAll('#pantalla-economia .btn-filtro[data-rango]')
+      .forEach(function (boton) {
+        boton.addEventListener('click', function () {
+          abrirEconomia(boton.getAttribute('data-rango'));
+        });
+      });
     document.querySelectorAll('.directorio-tabs .btn-filtro').forEach(function (boton) {
       boton.addEventListener('click', function () {
         abrirDirectorio(boton.getAttribute('data-tipo'));
@@ -213,7 +235,8 @@
       pantallas[clave].classList.toggle('oculto', clave !== nombre);
     });
     const enPrincipal = nombre === 'principal' || nombre === 'agenda' ||
-      nombre === 'directorio' || nombre === 'presupuestos' || nombre === 'trabajos';
+      nombre === 'directorio' || nombre === 'presupuestos' ||
+      nombre === 'trabajos' || nombre === 'economia';
     $('btn-salir').classList.toggle('oculto', !enPrincipal);
     $('btn-config').classList.toggle('oculto', nombre === 'config');
     window.scrollTo(0, 0);
@@ -270,6 +293,7 @@
     const clave = String(accion || '').toLowerCase();
     if (!clave) return false;
     if (clave === 'sesion' || clave === 'ping') return true;
+    if (clave === 'economia.resumen' || clave === 'economia.trabajo') return true;
     return /\.(buscar|listar|obtener)$/.test(clave);
   }
 
@@ -895,6 +919,16 @@
           return;
         }
 
+        if (respuesta.intencion === 'ECONOMIA_CONSULTAR') {
+          limpiarBorrador();
+          const rango = (respuesta.datos && respuesta.datos.rango) ||
+            (respuesta.rango && respuesta.rango.clave) || 'mes';
+          abrirEconomia(rango);
+          agregarMensaje('asistente', respuesta.mensaje || 'Abriendo economía.');
+          hablar(respuesta.mensaje || 'Abriendo economía.');
+          return;
+        }
+
         if (respuesta.intencion === 'CONSULTAR' && respuesta.soportado && respuesta.rango) {
           limpiarBorrador();
           abrirAgendaRango(respuesta.rango);
@@ -1489,7 +1523,7 @@
       etiqueta = 'esta semana';
     }
 
-    document.querySelectorAll('.btn-filtro').forEach(function (boton) {
+    document.querySelectorAll('#pantalla-agenda .btn-filtro').forEach(function (boton) {
       boton.classList.toggle('activo', boton.getAttribute('data-rango') === estado.agendaRango);
     });
 
@@ -1499,7 +1533,7 @@
 
   function abrirAgendaRango(rango) {
     estado.agendaRango = '';
-    document.querySelectorAll('.btn-filtro').forEach(function (boton) {
+    document.querySelectorAll('#pantalla-agenda .btn-filtro').forEach(function (boton) {
       boton.classList.remove('activo');
     });
     irA('agenda');
@@ -4201,6 +4235,463 @@
     evento.preventDefault();
     cerrarDetalleTrabajo();
     cargarTrabajos();
+  }
+
+  // -------------------------------------------------------------------------
+  // Economía
+  // -------------------------------------------------------------------------
+
+  function abrirEconomia(rango) {
+    if (rango !== undefined) {
+      estado.economiaRango = rango || 'mes';
+    }
+    actualizarFiltrosEconomia_();
+    if (!$('cobro-fecha').value) $('cobro-fecha').value = fechaISO(new Date());
+    irA('economia');
+    cargarEconomia();
+  }
+
+  function actualizarFiltrosEconomia_() {
+    document.querySelectorAll('#pantalla-economia .btn-filtro[data-rango]')
+      .forEach(function (boton) {
+        boton.classList.toggle('activo',
+          boton.getAttribute('data-rango') === estado.economiaRango);
+      });
+  }
+
+  async function cargarEconomia() {
+    const solicitud = (estado.economiaSolicitud || 0) + 1;
+    estado.economiaSolicitud = solicitud;
+    estado.economiaCargando = true;
+    const teniaDatos = !!estado.economiaDatos;
+    $('economia-mensaje').textContent = teniaDatos ? 'Actualizando…' : 'Cargando…';
+    $('economia-mensaje').classList.remove('ok');
+
+    try {
+      const datos = await api('economia.resumen', { rango: estado.economiaRango });
+      if (solicitud !== estado.economiaSolicitud) return;
+      estado.economiaDatos = datos;
+      renderizarEconomia_(datos);
+    } catch (error) {
+      if (solicitud !== estado.economiaSolicitud) return;
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      $('economia-mensaje').textContent = error.message;
+    } finally {
+      if (solicitud === estado.economiaSolicitud) {
+        estado.economiaCargando = false;
+      }
+    }
+  }
+
+  function renderizarEconomia_(datos) {
+    const totales = (datos && datos.totales) || {};
+    const rango = (datos && datos.rango) || {};
+    const trabajos = (datos && datos.trabajos) || [];
+
+    $('economia-titulo').textContent = 'Resumen ' + (rango.etiqueta || 'del mes');
+    $('economia-mensaje').textContent = '';
+    renderizarTotalesEconomia_(totales);
+    renderizarClientesEconomia_((datos && datos.clientes) || []);
+    renderizarTrabajosEconomia_(trabajos);
+    renderizarMovimientosEconomia_((datos && datos.movimientos) || []);
+    poblarTrabajosCobro_(trabajos);
+  }
+
+  function renderizarTotalesEconomia_(totales) {
+    const contenedor = $('economia-totales');
+    contenedor.innerHTML = '';
+    const definiciones = [
+      ['Presupuestado', totales.presupuestado, ''],
+      ['Facturado pend.', totales.facturado, ''],
+      ['Cobrado', totales.cobrado, 'ok'],
+      ['Gastos', totales.gastos, ''],
+      ['Ganancia', totales.ganancia, Number(totales.ganancia) < 0 ? 'negativo' : 'ok'],
+      ['Por cobrar total', totales.por_cobrar, '']
+    ];
+
+    definiciones.forEach(function (definicion) {
+      const tarjeta = document.createElement('div');
+      tarjeta.className = 'economia-total ' + (definicion[2] || '');
+      const etiqueta = document.createElement('span');
+      etiqueta.textContent = definicion[0];
+      const valor = document.createElement('strong');
+      valor.textContent = monedaPresupuesto_(definicion[1]);
+      tarjeta.appendChild(etiqueta);
+      tarjeta.appendChild(valor);
+      contenedor.appendChild(tarjeta);
+    });
+  }
+
+  function renderizarClientesEconomia_(clientes) {
+    const lista = $('economia-clientes');
+    lista.innerHTML = '';
+
+    if (!clientes.length) {
+      lista.appendChild(textoVacioEconomia_('No hay saldos pendientes por cliente.'));
+      return;
+    }
+
+    clientes.forEach(function (cliente) {
+      const tarjeta = document.createElement('article');
+      tarjeta.className = 'economia-item';
+
+      const titulo = document.createElement('strong');
+      titulo.textContent = cliente.cliente_nombre || 'Sin cliente';
+
+      const meta = document.createElement('span');
+      meta.className = 'economia-meta';
+      meta.textContent = cliente.trabajos +
+        (cliente.trabajos === 1 ? ' trabajo' : ' trabajos') +
+        ' · Presupuestado ' + monedaPresupuesto_(cliente.presupuestado) +
+        ' · Cobrado ' + monedaPresupuesto_(cliente.cobrado);
+
+      const saldo = document.createElement('strong');
+      saldo.className = 'economia-saldo';
+      saldo.textContent = 'Saldo ' + monedaPresupuesto_(cliente.saldo);
+
+      tarjeta.appendChild(titulo);
+      tarjeta.appendChild(meta);
+      tarjeta.appendChild(saldo);
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  function renderizarTrabajosEconomia_(trabajos) {
+    const lista = $('economia-trabajos');
+    lista.innerHTML = '';
+    const pendientes = trabajos.filter(function (trabajo) {
+      return Number(trabajo.saldo) > 0;
+    });
+
+    if (!pendientes.length) {
+      lista.appendChild(textoVacioEconomia_('No hay trabajos con saldo pendiente.'));
+      return;
+    }
+
+    pendientes.forEach(function (trabajo) {
+      const tarjeta = document.createElement('article');
+      tarjeta.className = 'economia-item';
+
+      const titulo = document.createElement('strong');
+      titulo.textContent = trabajo.cliente_nombre || trabajo.trabajo_id || 'Trabajo';
+
+      const detalle = document.createElement('span');
+      detalle.className = 'economia-detalle';
+      detalle.textContent = (trabajo.trabajo_id || '') +
+        (trabajo.descripcion ? ' · ' + trabajo.descripcion : '');
+
+      const meta = document.createElement('span');
+      meta.className = 'economia-meta';
+      meta.textContent = 'Presupuestado ' + monedaPresupuesto_(trabajo.presupuestado) +
+        ' · Cobrado ' + monedaPresupuesto_(trabajo.cobrado) +
+        ' · ' + estadoTrabajoLegible_(trabajo.estado);
+
+      const saldo = document.createElement('strong');
+      saldo.className = 'economia-saldo';
+      saldo.textContent = 'Saldo ' + monedaPresupuesto_(trabajo.saldo);
+
+      const acciones = document.createElement('div');
+      acciones.className = 'economia-acciones';
+      const cobrar = document.createElement('button');
+      cobrar.type = 'button';
+      cobrar.className = 'btn-secundario';
+      cobrar.textContent = 'Cobrar saldo';
+      cobrar.addEventListener('click', function () { prepararCobroEconomia_(trabajo); });
+      acciones.appendChild(cobrar);
+
+      tarjeta.appendChild(titulo);
+      tarjeta.appendChild(detalle);
+      tarjeta.appendChild(meta);
+      tarjeta.appendChild(saldo);
+      tarjeta.appendChild(acciones);
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  function renderizarMovimientosEconomia_(movimientos) {
+    const lista = $('economia-movimientos');
+    lista.innerHTML = '';
+
+    if (!movimientos.length) {
+      lista.appendChild(textoVacioEconomia_('No hay movimientos en el período.'));
+      return;
+    }
+
+    movimientos.forEach(function (movimiento) {
+      const tarjeta = document.createElement('article');
+      tarjeta.className = 'economia-item economia-movimiento';
+
+      const superior = document.createElement('div');
+      superior.className = 'economia-movimiento-superior';
+
+      const titulo = document.createElement('strong');
+      titulo.textContent = categoriaMovimientoLegible_(movimiento.categoria);
+
+      const importe = document.createElement('strong');
+      importe.className = 'economia-importe ' +
+        (movimiento.tipo === 'INGRESO' ? 'ingreso' : 'egreso');
+      importe.textContent = (movimiento.tipo === 'INGRESO' ? '+' : '−') +
+        monedaPresupuesto_(movimiento.importe);
+
+      superior.appendChild(titulo);
+      superior.appendChild(importe);
+
+      const detalle = document.createElement('span');
+      detalle.className = 'economia-detalle';
+      const partes = [
+        fechaCorta(movimiento.fecha),
+        estadoMovimientoLegible_(movimiento.estado)
+      ];
+      if (movimiento.cliente_nombre) partes.push(movimiento.cliente_nombre);
+      if (movimiento.trabajo_id) partes.push(movimiento.trabajo_id);
+      if (movimiento.medio_pago) partes.push(medioPagoLegible_(movimiento.medio_pago));
+      detalle.textContent = partes.join(' · ');
+
+      tarjeta.appendChild(superior);
+      tarjeta.appendChild(detalle);
+
+      if (movimiento.descripcion) {
+        const descripcion = document.createElement('span');
+        descripcion.className = 'economia-meta';
+        descripcion.textContent = movimiento.descripcion;
+        tarjeta.appendChild(descripcion);
+      }
+
+      const acciones = document.createElement('div');
+      acciones.className = 'economia-acciones';
+
+      if (puedeEscribir() &&
+          String(movimiento.estado || '').toUpperCase() === 'PENDIENTE') {
+        const marcar = document.createElement('button');
+        marcar.type = 'button';
+        marcar.className = 'btn-principal';
+        marcar.textContent = String(movimiento.tipo || '').toUpperCase() === 'EGRESO'
+          ? 'Marcar pagado'
+          : 'Marcar cobrado';
+        marcar.addEventListener('click', function () {
+          marcarMovimientoEconomia_(movimiento);
+        });
+        acciones.appendChild(marcar);
+      }
+
+      if (esPropietario()) {
+        const anular = document.createElement('button');
+        anular.type = 'button';
+        anular.className = 'btn-anular';
+        anular.textContent = 'Anular';
+        anular.addEventListener('click', function () {
+          anularMovimientoEconomia_(movimiento);
+        });
+        acciones.appendChild(anular);
+      }
+
+      if (acciones.children.length) tarjeta.appendChild(acciones);
+
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  function textoVacioEconomia_(texto) {
+    const vacio = document.createElement('p');
+    vacio.className = 'agenda-vacio';
+    vacio.textContent = texto;
+    return vacio;
+  }
+
+  function poblarTrabajosCobro_(trabajos) {
+    const select = $('cobro-trabajo');
+    const anterior = select.value;
+    const pendientes = trabajos.filter(function (trabajo) {
+      return Number(trabajo.saldo) > 0;
+    });
+
+    select.innerHTML = '';
+    if (!pendientes.length) {
+      const opcion = document.createElement('option');
+      opcion.value = '';
+      opcion.textContent = 'Sin saldos pendientes';
+      select.appendChild(opcion);
+      select.disabled = true;
+      return;
+    }
+
+    select.disabled = false;
+    const inicial = document.createElement('option');
+    inicial.value = '';
+    inicial.textContent = 'Elegí un trabajo';
+    select.appendChild(inicial);
+
+    pendientes.forEach(function (trabajo) {
+      const opcion = document.createElement('option');
+      opcion.value = trabajo.trabajo_id;
+      opcion.textContent = (trabajo.cliente_nombre || trabajo.trabajo_id) +
+        ' · ' + trabajo.trabajo_id +
+        ' · Saldo ' + monedaPresupuesto_(trabajo.saldo);
+      select.appendChild(opcion);
+    });
+
+    if (anterior && pendientes.some(function (trabajo) {
+      return trabajo.trabajo_id === anterior;
+    })) {
+      select.value = anterior;
+    }
+  }
+
+  function prepararCobroEconomia_(trabajo) {
+    $('cobro-trabajo').value = trabajo.trabajo_id;
+    $('cobro-importe').value = Number(trabajo.saldo).toFixed(2);
+    $('cobro-descripcion').value = '';
+    $('cobro-mensaje').textContent = '';
+    estado.cobroIdempotencia = '';
+    $('form-cobro').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('cobro-importe').focus();
+  }
+
+  async function registrarCobro(evento) {
+    evento.preventDefault();
+    const trabajoId = $('cobro-trabajo').value;
+    const importe = Number($('cobro-importe').value);
+    const fecha = $('cobro-fecha').value || fechaISO(new Date());
+    const estadoMovimiento = $('cobro-estado').value || 'COBRADO';
+
+    if (!trabajoId) {
+      $('cobro-mensaje').textContent = 'Elegí el trabajo que vas a cobrar.';
+      return;
+    }
+    if (!(importe > 0)) {
+      $('cobro-mensaje').textContent = 'El importe debe ser mayor a cero.';
+      return;
+    }
+
+    const boton = $('btn-cobro-guardar');
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+    $('cobro-mensaje').textContent = '';
+    if (!estado.cobroIdempotencia) estado.cobroIdempotencia = nuevaClave();
+
+    try {
+      await api('economia.movimiento.crear', {
+        tipo: 'INGRESO',
+        categoria: 'COBRO_CLIENTE',
+        trabajo_id: trabajoId,
+        importe: importe,
+        fecha: fecha,
+        medio_pago: $('cobro-medio').value,
+        estado: estadoMovimiento,
+        descripcion: $('cobro-descripcion').value.trim(),
+        idempotencia: estado.cobroIdempotencia
+      });
+      estado.cobroIdempotencia = '';
+      $('cobro-importe').value = '';
+      $('cobro-descripcion').value = '';
+      await cargarEconomia();
+      $('economia-mensaje').textContent = estadoMovimiento === 'COBRADO'
+        ? 'Cobro registrado.'
+        : 'Cobro pendiente registrado.';
+      $('economia-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      $('cobro-mensaje').textContent = error.message;
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Registrar cobro';
+    }
+  }
+
+  async function marcarMovimientoEconomia_(movimiento) {
+    if (!movimiento || !movimiento.movimiento_id) return;
+    const esEgreso = String(movimiento.tipo || '').toUpperCase() === 'EGRESO';
+    const nuevoEstado = esEgreso ? 'PAGADO' : 'COBRADO';
+    const referencia = categoriaMovimientoLegible_(movimiento.categoria) +
+      ' de ' + monedaPresupuesto_(movimiento.importe) +
+      ' del ' + fechaCorta(movimiento.fecha);
+    if (!window.confirm('Marcar ' + referencia + ' como ' + nuevoEstado + '?')) return;
+
+    try {
+      await api('economia.movimiento.actualizar', {
+        movimiento_id: movimiento.movimiento_id,
+        estado: nuevoEstado
+      });
+      await cargarEconomia();
+      $('economia-mensaje').textContent = esEgreso
+        ? 'Egreso marcado como pagado.'
+        : 'Cobro marcado como cobrado.';
+      $('economia-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      window.alert(error.message);
+    }
+  }
+
+  async function anularMovimientoEconomia_(movimiento) {
+    if (!movimiento || !movimiento.movimiento_id) return;
+    const referencia = categoriaMovimientoLegible_(movimiento.categoria) +
+      ' de ' + monedaPresupuesto_(movimiento.importe) +
+      ' del ' + fechaCorta(movimiento.fecha);
+    if (!window.confirm('¿Anular «' + referencia + '»?\n\nNo se borra: queda marcado como ANULADO.')) {
+      return;
+    }
+
+    try {
+      await api('economia.movimiento.anular', {
+        movimiento_id: movimiento.movimiento_id,
+        motivo: 'Anulación desde la pantalla de economía'
+      });
+      await cargarEconomia();
+      $('economia-mensaje').textContent = 'Movimiento anulado.';
+      $('economia-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+        return;
+      }
+      window.alert(error.message);
+    }
+  }
+
+  function categoriaMovimientoLegible_(categoria) {
+    const nombres = {
+      COBRO_CLIENTE: 'Cobro de cliente',
+      OTRO: 'Otro ingreso',
+      PAGO_PROVEEDOR: 'Pago a proveedor',
+      MATERIAL: 'Material',
+      MANO_DE_OBRA: 'Mano de obra',
+      GASTO_EXTRA: 'Gasto extra'
+    };
+    const clave = String(categoria || '').toUpperCase();
+    return nombres[clave] || clave || 'Movimiento';
+  }
+
+  function estadoMovimientoLegible_(estado) {
+    const nombres = {
+      PENDIENTE: 'Pendiente',
+      COBRADO: 'Cobrado',
+      PAGADO: 'Pagado',
+      ANULADO: 'Anulado'
+    };
+    const clave = String(estado || '').toUpperCase();
+    return nombres[clave] || clave || 'Sin estado';
+  }
+
+  function medioPagoLegible_(medio) {
+    const nombres = {
+      EFECTIVO: 'Efectivo',
+      TRANSFERENCIA: 'Transferencia',
+      TARJETA: 'Tarjeta',
+      CHEQUE: 'Cheque',
+      OTRO: 'Otro'
+    };
+    const clave = String(medio || '').toUpperCase();
+    return nombres[clave] || clave || '';
   }
 
   function puedeEditarTrabajo_(trabajo) {

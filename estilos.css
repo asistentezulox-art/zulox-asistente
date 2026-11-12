@@ -1524,3 +1524,131 @@ body.pdf-abierto {
   .pdf-seccion,
   .pdf-total { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* Economía */
+
+.economia-subtitulo {
+  margin: 22px 0 8px;
+  font-size: 1rem;
+  color: var(--celeste-suave);
+}
+
+.economia-totales {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.economia-total {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 14px;
+  background: rgba(7, 25, 46, 0.72);
+}
+
+.economia-total span {
+  color: var(--gris);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.economia-total strong { font-size: 1.05rem; }
+.economia-total.ok strong { color: var(--verde); }
+.economia-total.negativo strong { color: var(--rojo); }
+
+.economia-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.economia-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 14px;
+  background: rgba(16, 42, 76, 0.55);
+}
+
+.economia-item strong { overflow-wrap: anywhere; }
+
+.economia-detalle {
+  color: var(--celeste-suave);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.economia-meta {
+  color: var(--gris);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.economia-saldo {
+  color: var(--ambar);
+  margin-top: 2px;
+}
+
+.economia-movimiento-superior {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.economia-importe.ingreso { color: var(--verde); }
+.economia-importe.egreso { color: var(--rojo); }
+
+.economia-acciones {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.economia-acciones .btn-secundario,
+.economia-acciones .btn-anular {
+  width: auto;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+#form-cobro {
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+#form-cobro input,
+#form-cobro select {
+  flex: 1 1 150px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--azul-borde);
+  border-radius: 13px;
+  background: rgba(7, 25, 46, 0.9);
+  color: var(--blanco);
+  outline: none;
+  font: inherit;
+}
+
+#form-cobro input:focus,
+#form-cobro select:focus { border-color: var(--celeste); }
+
+#form-cobro .btn-enviar {
+  width: auto;
+  flex: 1 1 150px;
+  padding: 0 14px;
+  color: var(--celeste);
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .economia-totales { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .economia-movimiento-superior { flex-direction: column; gap: 2px; }
+}

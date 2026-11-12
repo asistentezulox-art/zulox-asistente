@@ -118,6 +118,10 @@
         Trabajos
       </button>
 
+      <button id="btn-economia" type="button" class="btn-secundario btn-agenda">
+        Economía
+      </button>
+
       <form id="form-manual" class="formulario-manual">
         <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
         <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
@@ -250,6 +254,64 @@
       <p id="trabajos-mensaje" class="mensaje-config" role="status"></p>
       <div id="trabajos-lista" class="agenda-lista" aria-live="polite"></div>
       <div id="trabajo-detalle" class="directorio-detalle oculto"></div>
+    </section>
+
+    <section id="pantalla-economia" class="pantalla oculto">
+      <div class="agenda-cabecera">
+        <div>
+          <h1>Economía</h1>
+          <p id="economia-titulo" class="agenda-titulo">Resumen del mes</p>
+        </div>
+        <button id="btn-economia-volver" type="button" class="btn-texto">Volver</button>
+      </div>
+
+      <div class="presupuestos-filtros" role="group" aria-label="Período">
+        <button type="button" class="btn-filtro" data-rango="hoy">Hoy</button>
+        <button type="button" class="btn-filtro" data-rango="semana">Semana</button>
+        <button type="button" class="btn-filtro activo" data-rango="mes">Mes</button>
+        <button type="button" class="btn-filtro" data-rango="anio">Año</button>
+      </div>
+
+      <p id="economia-mensaje" class="mensaje-config" role="status"></p>
+      <div id="economia-totales" class="economia-totales" aria-live="polite"></div>
+
+      <h2 class="economia-subtitulo">Cobrar saldo de un trabajo</h2>
+      <form id="form-cobro" class="formulario-manual">
+        <label class="oculto" for="cobro-trabajo">Trabajo</label>
+        <select id="cobro-trabajo" required></select>
+        <label class="oculto" for="cobro-importe">Importe</label>
+        <input id="cobro-importe" type="number" min="0.01" step="0.01"
+               inputmode="decimal" placeholder="Importe" required>
+        <label class="oculto" for="cobro-fecha">Fecha</label>
+        <input id="cobro-fecha" type="date" required>
+        <label class="oculto" for="cobro-medio">Medio de pago</label>
+        <select id="cobro-medio">
+          <option value="EFECTIVO">Efectivo</option>
+          <option value="TRANSFERENCIA">Transferencia</option>
+          <option value="TARJETA">Tarjeta</option>
+          <option value="CHEQUE">Cheque</option>
+          <option value="OTRO">Otro</option>
+        </select>
+        <label class="oculto" for="cobro-estado">Estado</label>
+        <select id="cobro-estado">
+          <option value="COBRADO">Cobrado</option>
+          <option value="PENDIENTE">Pendiente</option>
+        </select>
+        <label class="oculto" for="cobro-descripcion">Descripción</label>
+        <input id="cobro-descripcion" type="text" maxlength="200"
+               autocomplete="off" placeholder="Descripción (opcional)">
+        <button id="btn-cobro-guardar" type="submit" class="btn-enviar">Registrar cobro</button>
+      </form>
+      <p id="cobro-mensaje" class="mensaje-error" role="alert"></p>
+
+      <h2 class="economia-subtitulo">Saldos por cliente</h2>
+      <div id="economia-clientes" class="economia-lista" aria-live="polite"></div>
+
+      <h2 class="economia-subtitulo">Trabajos</h2>
+      <div id="economia-trabajos" class="economia-lista" aria-live="polite"></div>
+
+      <h2 class="economia-subtitulo">Movimientos del período</h2>
+      <div id="economia-movimientos" class="economia-lista" aria-live="polite"></div>
     </section>
   </main>
 
@@ -570,7 +632,7 @@
 
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.8.3</span>
+    <span id="version-pie">v0.9.0</span>
   </footer>
 
   <script src="app.js"></script>
