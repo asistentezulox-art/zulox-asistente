@@ -525,9 +525,38 @@
     </form>
   </dialog>
 
+  <dialog id="dialogo-adicional-trabajo" class="dialogo">
+    <form id="form-adicional-trabajo" class="formulario">
+      <h2 id="adicional-trabajo-titulo">Agregar adicional</h2>
+      <p id="adicional-trabajo-contexto" class="ayuda"></p>
+
+      <label for="adicional-trabajo-descripcion">Descripción</label>
+      <input id="adicional-trabajo-descripcion" type="text" maxlength="300" required autocomplete="off">
+
+      <div class="form-doble">
+        <div>
+          <label for="adicional-trabajo-importe">Importe</label>
+          <input id="adicional-trabajo-importe" type="number" min="0.01" step="0.01" required>
+        </div>
+        <div>
+          <label for="adicional-trabajo-fecha">Fecha</label>
+          <input id="adicional-trabajo-fecha" type="date" required>
+        </div>
+      </div>
+
+      <p class="ayuda">El adicional suma al presupuestado del cliente y al saldo a cobrar. No es un costo.</p>
+
+      <p id="adicional-trabajo-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-adicional-trabajo-guardar" type="submit" class="btn-principal">Guardar adicional</button>
+        <button id="btn-adicional-trabajo-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v0.8.0</span>
+    <span id="version-pie">v0.8.1</span>
   </footer>
 
   <script src="app.js"></script>

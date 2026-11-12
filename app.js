@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.0';
+  const VERSION = '0.8.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -71,9 +71,13 @@
     trabajosEstado: 'TODOS',
     trabajosItems: [],
     trabajosCargando: false,
+    trabajosSolicitud: 0,
     trabajoActual: null,
+    trabajoDetalleSolicitud: 0,
     costoTrabajoEditando: null,
-    proveedoresFormulario: []
+    adicionalTrabajoEditando: null,
+    proveedoresFormulario: [],
+    proveedoresFormularioCargados: false
   };
 
   const $ = function (id) { return document.getElementById(id); };
@@ -153,6 +157,8 @@
     $('btn-trabajo-cancelar').addEventListener('click', cerrarFormularioTrabajo);
     $('form-costo-trabajo').addEventListener('submit', guardarCostoTrabajo);
     $('btn-costo-trabajo-cancelar').addEventListener('click', cerrarFormularioCostoTrabajo);
+    $('form-adicional-trabajo').addEventListener('submit', guardarAdicionalTrabajo);
+    $('btn-adicional-trabajo-cancelar').addEventListener('click', cerrarFormularioAdicionalTrabajo);
     $('form-buscar-presupuesto').addEventListener('submit', buscarPresupuestos);
     $('btn-nuevo-presupuesto').addEventListener('click', function () { abrirFormularioPresupuesto(); });
     $('form-presupuesto').addEventListener('submit', guardarPresupuesto);
@@ -242,18 +248,58 @@
   // API
   // -------------------------------------------------------------------------
 
-  function api(accion, datos) {
-    return apiEn(estado.api, accion, datos);
+  function api(accion, datos, opciones) {
+    const opcionesApi = opciones || {};
+    const reintentar = opcionesApi.reintentar !== undefined
+      ? !!opcionesApi.reintentar
+      : esAccionLectura_(accion);
+    return apiEn(estado.api, accion, datos, reintentar ? 2 : 1);
   }
 
-  async function apiEn(url, accion, datos) {
+  function esAccionLectura_(accion) {
+    const clave = String(accion || '').toLowerCase();
+    if (!clave) return false;
+    if (clave === 'sesion' || clave === 'ping') return true;
+    return /\.(buscar|listar|obtener)$/.test(clave);
+  }
+
+  function errorApi_(mensaje, codigo, reintentable) {
+    const error = new Error(mensaje);
+    if (codigo) error.codigo = codigo;
+    error.reintentable = !!reintentable;
+    return error;
+  }
+
+  function esperarMs_(ms) {
+    return new Promise(function (resolver) {
+      setTimeout(resolver, ms);
+    });
+  }
+
+  async function apiEn(url, accion, datos, intentos) {
+    const total = Math.max(1, Number(intentos) || 1);
+    let ultimoError = null;
+    for (let intento = 1; intento <= total; intento++) {
+      try {
+        return await enviarApi_(url, accion, datos);
+      } catch (error) {
+        ultimoError = error;
+        if (!error.reintentable || intento >= total) throw error;
+        await esperarMs_(1200);
+      }
+    }
+    throw ultimoError || new Error('La API no respondió.');
+  }
+
+  async function enviarApi_(url, accion, datos) {
     if (!url) throw new Error('Falta configurar la URL de la API.');
 
     const cuerpo = Object.assign({ accion: accion }, datos || {});
     if (estado.token && !cuerpo.token) cuerpo.token = estado.token;
+    const lectura = esAccionLectura_(accion);
 
     const controlador = new AbortController();
-    const temporizador = setTimeout(function () { controlador.abort(); }, 20000);
+    const temporizador = setTimeout(function () { controlador.abort(); }, 45000);
 
     let respuesta;
     try {
@@ -266,9 +312,19 @@
       });
     } catch (error) {
       if (error.name === 'AbortError') {
-        throw new Error('La API tardó demasiado. Revisá la conexión e intentá de nuevo.');
+        throw errorApi_(
+          lectura
+            ? 'La API tardó demasiado. Revisá la conexión e intentá de nuevo.'
+            : 'La API tardó demasiado. No sabemos si el cambio se guardó: recargá el trabajo antes de reintentar.',
+          'TIEMPO_AGOTADO',
+          true
+        );
       }
-      throw new Error('No pude conectarme con la API. Revisá Internet y la URL.');
+      throw errorApi_(
+        'No pude conectarme con la API. Revisá Internet y la URL.',
+        'SIN_CONEXION',
+        true
+      );
     } finally {
       clearTimeout(temporizador);
     }
@@ -278,12 +334,19 @@
     try {
       json = JSON.parse(texto);
     } catch (error) {
-      throw new Error('La API respondió algo inesperado. Verificá que la URL termine en /exec.');
+      throw errorApi_(
+        'La API respondió algo inesperado. Verificá que la URL termine en /exec.',
+        'RESPUESTA_INVALIDA',
+        false
+      );
     }
 
     if (!json.ok) {
-      const fallo = new Error(json.mensaje || 'La operación falló.');
-      fallo.codigo = json.codigo || 'ERROR';
+      const fallo = errorApi_(
+        json.mensaje || 'La operación falló.',
+        json.codigo || 'ERROR',
+        false
+      );
       if (fallo.codigo === 'SESION_INVALIDA' || fallo.codigo === 'SESION_VENCIDA') {
         limpiarSesion();
       }
@@ -338,8 +401,8 @@
 
   function entrarEnPrincipal() {
     irA('principal');
-    const nombre = estado.usuario && estado.usuario.nombre ? estado.usuario.nombre : '';
-    $('saludo').textContent = nombre ? 'Hola, ' + nombre + '.' : 'Hola.';
+    const nombre = nombreSaludo_();
+    $('saludo').textContent = nombre ? 'Hola ' + nombre : 'Hola';
     $('conversacion').innerHTML = '';
     transcripcion('');
     agregarMensaje('asistente', '¿Qué querés agendar o consultar?');
@@ -2007,6 +2070,7 @@
       }
 
       cerrarFormularioEntidad();
+      if (!esClientes) estado.proveedoresFormularioCargados = false;
       $('buscar-directorio').value = '';
       await cargarDirectorio();
       $('directorio-mensaje').textContent = esClientes
@@ -3033,7 +3097,8 @@
   }
 
   async function cargarTrabajos() {
-    if (estado.trabajosCargando) return;
+    const solicitud = (estado.trabajosSolicitud || 0) + 1;
+    estado.trabajosSolicitud = solicitud;
     estado.trabajosCargando = true;
 
     const datos = { texto: $('buscar-trabajo').value.trim() };
@@ -3041,21 +3106,26 @@
       datos.estado = estado.trabajosEstado;
     }
 
-    $('trabajos-mensaje').textContent = 'Cargando…';
+    const teniaItems = (estado.trabajosItems || []).length > 0;
+    $('trabajos-mensaje').textContent = teniaItems ? 'Actualizando…' : 'Cargando…';
     $('trabajos-mensaje').classList.remove('ok');
-    $('trabajos-lista').innerHTML = '';
+    if (!teniaItems) $('trabajos-lista').innerHTML = '';
 
     try {
       const resultado = await api('trabajo.buscar', datos);
+      if (solicitud !== estado.trabajosSolicitud) return;
       estado.trabajosItems = (resultado && resultado.trabajos) || [];
       renderizarTrabajos(estado.trabajosItems);
     } catch (error) {
+      if (solicitud !== estado.trabajosSolicitud) return;
       $('trabajos-mensaje').textContent = error.message;
       if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
         manejarError(error);
       }
     } finally {
-      estado.trabajosCargando = false;
+      if (solicitud === estado.trabajosSolicitud) {
+        estado.trabajosCargando = false;
+      }
     }
   }
 
@@ -3111,6 +3181,9 @@
         trabajo.fecha_inicio ? 'Inicio ' + fechaCorta(trabajo.fecha_inicio) : 'Sin inicio'
       ];
       if (trabajo.presupuesto_id) partes.push(trabajo.presupuesto_id);
+      if (Number(trabajo.importe_adicional) > 0) {
+        partes.push('Adicional ' + monedaPresupuesto_(trabajo.importe_adicional));
+      }
       if (Number(trabajo.costo_total) > 0) {
         partes.push('Costos ' + monedaPresupuesto_(trabajo.costo_total));
       }
@@ -3132,9 +3205,47 @@
     });
   }
 
+  function coincideFiltroTrabajo_(trabajo) {
+    if (!trabajo) return false;
+    const filtro = String(estado.trabajosEstado || 'TODOS').toUpperCase();
+    if (filtro !== 'TODOS' &&
+        String(trabajo.estado || '').toUpperCase() !== filtro) {
+      return false;
+    }
+    const texto = normalizar($('buscar-trabajo').value);
+    if (!texto) return true;
+    return normalizar([
+      trabajo.trabajo_id,
+      trabajo.presupuesto_id,
+      trabajo.direccion,
+      trabajo.descripcion,
+      trabajo.tipo_instalacion,
+      trabajo.cliente_nombre
+    ].join(' ')).indexOf(texto) !== -1;
+  }
+
+  function actualizarTrabajoEnLista_(trabajo) {
+    if (!trabajo) return;
+    const items = estado.trabajosItems || [];
+    const indice = items.findIndex(function (item) {
+      return item.trabajo_id === trabajo.trabajo_id;
+    });
+    if (!coincideFiltroTrabajo_(trabajo)) {
+      if (indice !== -1) items.splice(indice, 1);
+    } else if (indice === -1) {
+      items.unshift(trabajo);
+    } else {
+      items[indice] = Object.assign({}, items[indice], trabajo);
+    }
+    estado.trabajosItems = items;
+    renderizarTrabajos(items);
+  }
+
   async function abrirDetalleTrabajo(id) {
     if (!id) return;
 
+    const solicitud = (estado.trabajoDetalleSolicitud || 0) + 1;
+    estado.trabajoDetalleSolicitud = solicitud;
     estado.trabajoActual = null;
     const contenedor = $('trabajo-detalle');
     contenedor.classList.remove('oculto');
@@ -3143,8 +3254,10 @@
 
     try {
       const datos = await api('trabajo.obtener', { trabajo_id: id });
+      if (solicitud !== estado.trabajoDetalleSolicitud) return;
       renderizarDetalleTrabajo(datos);
     } catch (error) {
+      if (solicitud !== estado.trabajoDetalleSolicitud) return;
       if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
         manejarError(error);
         return;
@@ -3161,9 +3274,11 @@
     if (!datos || !datos.trabajo) return;
     const trabajo = datos.trabajo;
     const costos = datos.costos || [];
+    const adicionales = datos.adicionales || [];
     const resumen = datos.resumen || trabajo;
     const editable = puedeEditarTrabajo_(trabajo);
     const costosEditables = puedeCostosTrabajo_(trabajo);
+    const adicionalesEditables = puedeAdicionalesTrabajo_(trabajo);
     estado.trabajoActual = datos;
 
     const contenedor = $('trabajo-detalle');
@@ -3194,8 +3309,14 @@
 
     const total = document.createElement('p');
     total.className = 'presupuesto-total-detalle';
-    total.textContent = 'Presupuestado ' +
+    let totalTexto = 'Presupuestado total ' +
       monedaPresupuesto_(trabajo.importe_presupuestado);
+    if (Number(trabajo.importe_adicional) > 0) {
+      totalTexto += ' · Base ' +
+        monedaPresupuesto_(trabajo.importe_presupuestado_base) +
+        ' + adicionales ' + monedaPresupuesto_(trabajo.importe_adicional);
+    }
+    total.textContent = totalTexto;
     contenedor.appendChild(total);
 
     const campos = document.createElement('div');
@@ -3217,6 +3338,10 @@
 
     const economia = document.createElement('div');
     economia.className = 'trabajo-resumen';
+    agregarResumenTrabajo_(economia, 'Presupuestado',
+      monedaPresupuesto_(resumen.importe_presupuestado));
+    agregarResumenTrabajo_(economia, 'Adicionales',
+      monedaPresupuesto_(resumen.importe_adicional));
     agregarResumenTrabajo_(economia, 'Cobrado', monedaPresupuesto_(resumen.importe_cobrado));
     agregarResumenTrabajo_(economia, 'Costos', monedaPresupuesto_(resumen.costo_total));
     agregarResumenTrabajo_(economia, 'Resultado', monedaPresupuesto_(resumen.resultado));
@@ -3229,6 +3354,11 @@
     if (editable) {
       agregarAccionPresupuesto_(acciones, 'Editar', 'btn-secundario', function () {
         abrirFormularioTrabajo(trabajo);
+      });
+    }
+    if (adicionalesEditables) {
+      agregarAccionPresupuesto_(acciones, 'Agregar adicional', 'btn-secundario', function () {
+        abrirFormularioAdicionalTrabajo();
       });
     }
     if (costosEditables) {
@@ -3269,6 +3399,26 @@
       aviso.className = 'ayuda';
       aviso.textContent = 'Trabajo cerrado. Los cobros y movimientos se gestionan en control económico.';
       contenedor.appendChild(aviso);
+    }
+
+    const adicionalesTitulo = document.createElement('h3');
+    adicionalesTitulo.textContent = 'Adicionales al cliente';
+    contenedor.appendChild(adicionalesTitulo);
+
+    if (!adicionales.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = 'El trabajo todavía no tiene adicionales.';
+      contenedor.appendChild(vacio);
+    } else {
+      const listaAdicionales = document.createElement('div');
+      listaAdicionales.className = 'presupuesto-items';
+      adicionales.forEach(function (adicional) {
+        listaAdicionales.appendChild(
+          crearLineaAdicionalTrabajo_(adicional, adicionalesEditables)
+        );
+      });
+      contenedor.appendChild(listaAdicionales);
     }
 
     const costosTitulo = document.createElement('h3');
@@ -3402,6 +3552,59 @@
     return linea;
   }
 
+  function crearLineaAdicionalTrabajo_(adicional, puedeEditar) {
+    const linea = document.createElement('div');
+    linea.className = 'presupuesto-item-linea' +
+      (adicional.estado === 'ANULADO' ? ' anulado' : '');
+
+    const cuerpo = document.createElement('div');
+    cuerpo.className = 'presupuesto-item-cuerpo';
+
+    const descripcion = document.createElement('strong');
+    descripcion.textContent = adicional.descripcion;
+
+    const meta = document.createElement('span');
+    meta.className = 'presupuesto-item-meta';
+    const partes = [fechaCorta(adicional.fecha)];
+    if (adicional.estado === 'ANULADO') partes.push('ANULADO');
+    meta.textContent = partes.join(' · ');
+
+    cuerpo.appendChild(descripcion);
+    cuerpo.appendChild(meta);
+
+    const importe = document.createElement('span');
+    importe.className = 'presupuesto-item-subtotal';
+    importe.textContent = monedaPresupuesto_(adicional.importe);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'presupuesto-item-acciones';
+    if (puedeEditar && puedeEscribir() && adicional.estado !== 'ANULADO') {
+      const editar = document.createElement('button');
+      editar.type = 'button';
+      editar.className = 'btn-reprogramar';
+      editar.textContent = 'Editar';
+      editar.addEventListener('click', function () {
+        abrirFormularioAdicionalTrabajo(adicional);
+      });
+
+      const anular = document.createElement('button');
+      anular.type = 'button';
+      anular.className = 'btn-anular';
+      anular.textContent = 'Anular';
+      anular.addEventListener('click', function () {
+        anularAdicionalTrabajo(adicional);
+      });
+
+      acciones.appendChild(editar);
+      acciones.appendChild(anular);
+    }
+
+    linea.appendChild(cuerpo);
+    linea.appendChild(importe);
+    if (acciones.childNodes.length) linea.appendChild(acciones);
+    return linea;
+  }
+
   function abrirFormularioTrabajo(trabajo) {
     if (!trabajo || !puedeEditarTrabajo_(trabajo)) return;
     estado.trabajoActual = estado.trabajoActual || { trabajo: trabajo };
@@ -3459,7 +3662,7 @@
       const resultado = await api('trabajo.actualizar', entrada);
       cerrarFormularioTrabajo();
       renderizarDetalleTrabajo(resultado);
-      await cargarTrabajos();
+      actualizarTrabajoEnLista_(resultado.trabajo);
       $('trabajos-mensaje').textContent = 'Trabajo actualizado.';
       $('trabajos-mensaje').classList.add('ok');
     } catch (error) {
@@ -3495,17 +3698,20 @@
     select.innerHTML = '<option value="">Cargando proveedores…</option>';
     mostrarDialogo_('dialogo-costo-trabajo');
 
-    try {
-      const proveedores = await api('proveedor.buscar', { texto: '' });
-      estado.proveedoresFormulario = proveedores || [];
-    } catch (error) {
-      estado.proveedoresFormulario = [];
-      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
-        cerrarFormularioCostoTrabajo();
-        manejarError(error);
-        return;
+    if (!estado.proveedoresFormularioCargados) {
+      try {
+        const proveedores = await api('proveedor.buscar', { texto: '' });
+        estado.proveedoresFormulario = proveedores || [];
+        estado.proveedoresFormularioCargados = true;
+      } catch (error) {
+        estado.proveedoresFormulario = [];
+        if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+          cerrarFormularioCostoTrabajo();
+          manejarError(error);
+          return;
+        }
+        $('costo-trabajo-mensaje').textContent = error.message;
       }
-      $('costo-trabajo-mensaje').textContent = error.message;
     }
 
     const lista = (estado.proveedoresFormulario || []).slice();
@@ -3585,7 +3791,7 @@
       );
       cerrarFormularioCostoTrabajo();
       renderizarDetalleTrabajo(resultado);
-      await cargarTrabajos();
+      actualizarTrabajoEnLista_(resultado.trabajo);
       $('trabajos-mensaje').textContent = editando
         ? 'Costo actualizado.'
         : 'Costo agregado.';
@@ -3603,6 +3809,119 @@
     }
   }
 
+  function abrirFormularioAdicionalTrabajo(adicional) {
+    const actual = estado.trabajoActual;
+    if (!actual || !actual.trabajo || !puedeAdicionalesTrabajo_(actual.trabajo)) return;
+
+    const edicion = !!adicional;
+    estado.adicionalTrabajoEditando = edicion ? adicional : null;
+    $('adicional-trabajo-titulo').textContent = edicion
+      ? 'Editar adicional'
+      : 'Agregar adicional';
+    $('adicional-trabajo-contexto').textContent = actual.trabajo.trabajo_id +
+      ' · ' + (actual.trabajo.cliente_nombre || '');
+    $('adicional-trabajo-descripcion').value = edicion ? adicional.descripcion : '';
+    $('adicional-trabajo-importe').value = edicion ? adicional.importe : '';
+    $('adicional-trabajo-fecha').value = edicion
+      ? (adicional.fecha || fechaISO(new Date()))
+      : fechaISO(new Date());
+    $('adicional-trabajo-mensaje').textContent = '';
+    mostrarDialogo_('dialogo-adicional-trabajo');
+    setTimeout(function () { $('adicional-trabajo-descripcion').focus(); }, 50);
+  }
+
+  function cerrarFormularioAdicionalTrabajo() {
+    estado.adicionalTrabajoEditando = null;
+    $('adicional-trabajo-mensaje').textContent = '';
+    ocultarDialogo_('dialogo-adicional-trabajo');
+  }
+
+  async function guardarAdicionalTrabajo(evento) {
+    evento.preventDefault();
+    const actual = estado.trabajoActual;
+    if (!actual || !actual.trabajo) return;
+
+    const adicional = {
+      descripcion: $('adicional-trabajo-descripcion').value.trim(),
+      importe: Number($('adicional-trabajo-importe').value),
+      fecha: $('adicional-trabajo-fecha').value
+    };
+
+    if (!adicional.descripcion) {
+      $('adicional-trabajo-mensaje').textContent =
+        'Escribí la descripción del adicional.';
+      return;
+    }
+    if (!(adicional.importe > 0)) {
+      $('adicional-trabajo-mensaje').textContent =
+        'El importe debe ser mayor a cero.';
+      return;
+    }
+    if (!adicional.fecha) {
+      $('adicional-trabajo-mensaje').textContent =
+        'Elegí la fecha del adicional.';
+      return;
+    }
+
+    const editando = estado.adicionalTrabajoEditando;
+    const boton = $('btn-adicional-trabajo-guardar');
+    $('adicional-trabajo-mensaje').textContent = '';
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      const cuerpo = editando
+        ? { adicional_id: editando.adicional_id, adicional: adicional }
+        : { trabajo_id: actual.trabajo.trabajo_id, adicional: adicional };
+      const resultado = await api(
+        editando ? 'trabajo.adicional.actualizar' : 'trabajo.adicional.agregar',
+        cuerpo
+      );
+      cerrarFormularioAdicionalTrabajo();
+      renderizarDetalleTrabajo(resultado);
+      actualizarTrabajoEnLista_(resultado.trabajo);
+      $('trabajos-mensaje').textContent = editando
+        ? 'Adicional actualizado.'
+        : 'Adicional agregado.';
+      $('trabajos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioAdicionalTrabajo();
+        manejarError(error);
+      } else {
+        $('adicional-trabajo-mensaje').textContent = error.message;
+      }
+    } finally {
+      boton.disabled = false;
+      boton.textContent = 'Guardar adicional';
+    }
+  }
+
+  async function anularAdicionalTrabajo(adicional) {
+    if (!adicional || !puedeEscribir()) return;
+    const seguro = window.confirm('¿Anular el adicional «' +
+      adicional.descripcion + '»?\n\n' +
+      'No se borra: queda marcado como ANULADO y deja de sumar al total.');
+    if (!seguro) return;
+
+    try {
+      const resultado = await api('trabajo.adicional.anular', {
+        adicional_id: adicional.adicional_id,
+        motivo: 'Anulado desde la pantalla'
+      });
+      renderizarDetalleTrabajo(resultado);
+      actualizarTrabajoEnLista_(resultado.trabajo);
+      $('trabajos-mensaje').textContent = 'Adicional anulado.';
+      $('trabajos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
   async function anularCostoTrabajo(costo) {
     if (!costo || !puedeEscribir()) return;
     const seguro = window.confirm('¿Anular el costo «' + costo.descripcion + '»?\n\n' +
@@ -3615,7 +3934,7 @@
         motivo: 'Anulado desde la pantalla'
       });
       renderizarDetalleTrabajo(resultado);
-      await cargarTrabajos();
+      actualizarTrabajoEnLista_(resultado.trabajo);
       $('trabajos-mensaje').textContent = 'Costo anulado.';
       $('trabajos-mensaje').classList.add('ok');
     } catch (error) {
@@ -3648,7 +3967,7 @@
         motivo: 'Cambio desde la pantalla'
       });
       renderizarDetalleTrabajo(resultado);
-      await cargarTrabajos();
+      actualizarTrabajoEnLista_(resultado.trabajo);
       $('trabajos-mensaje').textContent = 'Estado actualizado: ' +
         estadoTrabajoLegible_(nuevoEstado) + '.';
       $('trabajos-mensaje').classList.add('ok');
@@ -3682,6 +4001,10 @@
   function puedeCostosTrabajo_(trabajo) {
     return puedeEscribir() && trabajo &&
       ['ANULADO', 'COBRADO'].indexOf(String(trabajo.estado || '').toUpperCase()) === -1;
+  }
+
+  function puedeAdicionalesTrabajo_(trabajo) {
+    return puedeCostosTrabajo_(trabajo);
   }
 
   function estadoTrabajoLegible_(estado) {
@@ -3751,6 +4074,16 @@
     } catch (error) {
       return String(texto).slice(0, 240);
     }
+  }
+
+  function nombreSaludo_() {
+    const usuario = estado.usuario || {};
+    const nombre = String(usuario.nombre || '').trim();
+    const rol = String(usuario.rol || '').toUpperCase();
+    if (rol === 'PROPIETARIO' && (!nombre || /^propietario$/i.test(nombre))) {
+      return 'Guillermo';
+    }
+    return nombre;
   }
 
   function puedeEscribir() {
