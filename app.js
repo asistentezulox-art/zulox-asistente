@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.2';
+  const VERSION = '0.8.3';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -2763,7 +2763,11 @@
     const cabecera = crearElementoPdf_('div', 'pdf-cabecera');
     const marca = crearElementoPdf_('div', 'pdf-marca');
     marca.appendChild(crearElementoPdf_('span', 'pdf-logo', 'Z'));
-    marca.appendChild(crearElementoPdf_('strong', 'pdf-marca-nombre', 'ZULOX'));
+    const datosMarca = crearElementoPdf_('div', 'pdf-marca-datos');
+    datosMarca.appendChild(crearElementoPdf_('strong', 'pdf-marca-nombre', 'ZULOX'));
+    datosMarca.appendChild(crearElementoPdf_('span', 'pdf-marca-contacto', 'Tel: 2617752029'));
+    datosMarca.appendChild(crearElementoPdf_('span', 'pdf-marca-contacto', 'Web: zulox.com.ar'));
+    marca.appendChild(datosMarca);
     const numero = crearElementoPdf_('div', 'pdf-numero');
     numero.appendChild(crearElementoPdf_('span', null, 'PRESUPUESTO'));
     numero.appendChild(crearElementoPdf_('strong', null, presupuesto.presupuesto_id || ''));
