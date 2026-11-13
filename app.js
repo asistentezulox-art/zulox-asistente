@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -66,6 +66,8 @@
     presupuestosCargando: false,
     presupuestoActual: null,
     presupuestoForm: null,
+    presupuestoGuardando: false,
+    presupuestoIdempotencia: '',
     clientesFormulario: [],
     itemPresupuestoEditando: null,
     trabajosEstado: 'TODOS',
@@ -2952,6 +2954,8 @@
     const edicion = !!(presupuesto && presupuesto.presupuesto_id);
     const hoy = fechaISO(new Date());
     estado.presupuestoForm = edicion ? presupuesto : null;
+    estado.presupuestoGuardando = false;
+    estado.presupuestoIdempotencia = edicion ? '' : nuevaClave();
 
     $('presupuesto-form-titulo').textContent = edicion
       ? 'Editar presupuesto'
@@ -3060,12 +3064,15 @@
 
   function cerrarFormularioPresupuesto() {
     estado.presupuestoForm = null;
+    estado.presupuestoGuardando = false;
+    estado.presupuestoIdempotencia = '';
     $('presupuesto-form-mensaje').textContent = '';
     ocultarDialogo_('dialogo-presupuesto');
   }
 
   async function guardarPresupuesto(evento) {
     evento.preventDefault();
+    if (estado.presupuestoGuardando) return;
     const boton = $('btn-presupuesto-guardar');
     const edicion = estado.presupuestoForm;
     const entrada = {
@@ -3109,6 +3116,13 @@
     }
     if (edicion) entrada.presupuesto_id = edicion.presupuesto_id;
 
+    const solicitud = { presupuesto: entrada };
+    if (!edicion) {
+      if (!estado.presupuestoIdempotencia) estado.presupuestoIdempotencia = nuevaClave();
+      solicitud.idempotencia = estado.presupuestoIdempotencia;
+    }
+
+    estado.presupuestoGuardando = true;
     $('presupuesto-form-mensaje').textContent = '';
     boton.disabled = true;
     boton.textContent = 'Guardando…';
@@ -3116,7 +3130,7 @@
     try {
       const resultado = await api(
         edicion ? 'presupuesto.actualizar' : 'presupuesto.crear',
-        { presupuesto: entrada }
+        solicitud
       );
       cerrarFormularioPresupuesto();
       await cargarPresupuestos();
@@ -3133,6 +3147,7 @@
         $('presupuesto-form-mensaje').textContent = error.message;
       }
     } finally {
+      estado.presupuestoGuardando = false;
       boton.disabled = false;
       boton.textContent = 'Guardar';
     }
