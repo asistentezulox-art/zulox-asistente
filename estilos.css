@@ -1264,27 +1264,20 @@ body.pdf-abierto {
 }
 
 .pdf-logo {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border: 2px solid #0b1f3a;
-  border-radius: 10px;
-  background: #eef3f8;
-  color: #0b1f3a;
-  font-size: 22px;
-  font-weight: 800;
+  display: block;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  border: 1px solid #1a2c44;
+  border-radius: 8px;
+  background: #071426;
+  object-fit: contain;
 }
 
 .pdf-marca-datos {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-}
-
-.pdf-marca-nombre {
-  font-size: 21px;
-  letter-spacing: 0.08em;
+  gap: 2px;
 }
 
 .pdf-marca-contacto {

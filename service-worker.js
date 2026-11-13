@@ -3,7 +3,7 @@
  * Guarda la pantalla para que abra rápido. Nunca guarda respuestas de la API.
  */
 
-const CACHE = 'zulox-asistente-v0.9.0';
+const CACHE = 'zulox-asistente-v1.0.0';
 const ARCHIVOS = [
   './',
   './index.html',
@@ -11,7 +11,8 @@ const ARCHIVOS = [
   './app.js',
   './manifest.json',
   './icono-192.png',
-  './icono-512.png'
+  './icono-512.png',
+  './logo-zulox.jpg'
 ];
 
 self.addEventListener('install', function (evento) {
