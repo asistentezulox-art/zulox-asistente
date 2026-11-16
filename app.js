@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.0.1';
+  const VERSION = '1.1.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -68,8 +68,10 @@
     presupuestoForm: null,
     presupuestoGuardando: false,
     presupuestoIdempotencia: '',
+    presupuestoItemsNuevos: [],
     clientesFormulario: [],
     itemPresupuestoEditando: null,
+    itemPresupuestoStaging: false,
     trabajosEstado: 'TODOS',
     trabajosItems: [],
     trabajosCargando: false,
@@ -179,6 +181,7 @@
     $('btn-nuevo-presupuesto').addEventListener('click', function () { abrirFormularioPresupuesto(); });
     $('form-presupuesto').addEventListener('submit', guardarPresupuesto);
     $('btn-presupuesto-cancelar').addEventListener('click', cerrarFormularioPresupuesto);
+    $('btn-presupuesto-agregar-item').addEventListener('click', abrirItemPresupuestoNuevo);
     $('btn-presupuesto-pdf-imprimir').addEventListener('click', imprimirPresupuestoPdf);
     $('btn-presupuesto-pdf-cerrar').addEventListener('click', cerrarPresupuestoPdf);
     $('presupuesto-pdf').addEventListener('click', function (evento) {
@@ -2956,6 +2959,9 @@
     estado.presupuestoForm = edicion ? presupuesto : null;
     estado.presupuestoGuardando = false;
     estado.presupuestoIdempotencia = edicion ? '' : nuevaClave();
+    estado.presupuestoItemsNuevos = [];
+    estado.itemPresupuestoStaging = false;
+    estado.itemPresupuestoEditando = null;
 
     $('presupuesto-form-titulo').textContent = edicion
       ? 'Editar presupuesto'
@@ -2984,6 +2990,8 @@
       : '';
     $('presupuesto-importe').value = '';
     $('presupuesto-importe-campo').classList.toggle('oculto', edicion);
+    $('presupuesto-items-campo').classList.toggle('oculto', edicion);
+    if (!edicion) renderizarItemsNuevosPresupuesto();
     $('presupuesto-observaciones').value = edicion
       ? (presupuesto.observaciones || '')
       : '';
@@ -3066,6 +3074,9 @@
     estado.presupuestoForm = null;
     estado.presupuestoGuardando = false;
     estado.presupuestoIdempotencia = '';
+    estado.presupuestoItemsNuevos = [];
+    estado.itemPresupuestoStaging = false;
+    estado.itemPresupuestoEditando = null;
     $('presupuesto-form-mensaje').textContent = '';
     ocultarDialogo_('dialogo-presupuesto');
   }
@@ -3105,7 +3116,17 @@
       $('presupuesto-form-mensaje').textContent = 'El monto no es válido.';
       return;
     }
-    if (!edicion && importe > 0) {
+    if (!edicion && estado.presupuestoItemsNuevos.length) {
+      entrada.items = estado.presupuestoItemsNuevos.map(function (item) {
+        return {
+          tipo: item.tipo,
+          descripcion: item.descripcion,
+          cantidad: item.cantidad,
+          unidad: item.unidad,
+          precio_unitario: item.precio_unitario
+        };
+      });
+    } else if (!edicion && importe > 0) {
       entrada.items = [{
         tipo: 'OTRO',
         descripcion: entrada.descripcion.slice(0, 300),
@@ -3162,6 +3183,7 @@
     }
 
     const edicion = !!item;
+    estado.itemPresupuestoStaging = false;
     estado.itemPresupuestoEditando = edicion ? item : null;
     $('item-presupuesto-titulo').textContent = edicion ? 'Editar ítem' : 'Agregar ítem';
     $('item-presupuesto-contexto').textContent = actual.presupuesto.presupuesto_id +
@@ -3179,8 +3201,87 @@
 
   function cerrarFormularioItemPresupuesto() {
     estado.itemPresupuestoEditando = null;
+    estado.itemPresupuestoStaging = false;
     $('item-presupuesto-mensaje').textContent = '';
     ocultarDialogo_('dialogo-item-presupuesto');
+  }
+
+  function abrirItemPresupuestoNuevo() {
+    if (!puedeEscribir() || estado.presupuestoForm) return;
+    estado.itemPresupuestoStaging = true;
+    estado.itemPresupuestoEditando = null;
+    $('item-presupuesto-titulo').textContent = 'Agregar ítem';
+    $('item-presupuesto-contexto').textContent = 'Nuevo presupuesto';
+    $('item-presupuesto-tipo').value = 'MATERIAL';
+    $('item-presupuesto-descripcion').value = '';
+    $('item-presupuesto-cantidad').value = '1';
+    $('item-presupuesto-unidad').value = 'UN';
+    $('item-presupuesto-precio').value = '0';
+    $('item-presupuesto-mensaje').textContent = '';
+    actualizarSubtotalItemPresupuesto();
+    mostrarDialogo_('dialogo-item-presupuesto');
+    setTimeout(function () { $('item-presupuesto-descripcion').focus(); }, 50);
+  }
+
+  function renderizarItemsNuevosPresupuesto() {
+    const lista = $('presupuesto-items-lista');
+    const items = estado.presupuestoItemsNuevos || [];
+    lista.innerHTML = '';
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'items-presupuesto-vacio';
+      vacio.textContent = 'Todavía no agregaste ítems.';
+      lista.appendChild(vacio);
+      $('presupuesto-importe-campo').classList.remove('oculto');
+      $('presupuesto-items-total').textContent = 'Total: ' + monedaPresupuesto_(0);
+      return;
+    }
+
+    let total = 0;
+    items.forEach(function (item, indice) {
+      const subtotal = Number(item.cantidad) * Number(item.precio_unitario);
+      total += subtotal;
+
+      const fila = document.createElement('div');
+      fila.className = 'items-presupuesto-linea';
+
+      const cuerpo = document.createElement('div');
+      cuerpo.className = 'items-presupuesto-cuerpo';
+      const descripcion = document.createElement('strong');
+      descripcion.textContent = item.descripcion;
+      const meta = document.createElement('span');
+      meta.textContent = item.cantidad + ' ' + item.unidad + ' × ' +
+        monedaPresupuesto_(item.precio_unitario);
+      cuerpo.appendChild(descripcion);
+      cuerpo.appendChild(meta);
+
+      const subtotalVista = document.createElement('span');
+      subtotalVista.className = 'items-presupuesto-subtotal';
+      subtotalVista.textContent = monedaPresupuesto_(subtotal);
+
+      const quitar = document.createElement('button');
+      quitar.type = 'button';
+      quitar.className = 'btn-secundario items-presupuesto-quitar';
+      quitar.textContent = 'Quitar';
+      quitar.addEventListener('click', function () {
+        quitarItemPresupuestoNuevo(indice);
+      });
+
+      fila.appendChild(cuerpo);
+      fila.appendChild(subtotalVista);
+      fila.appendChild(quitar);
+      lista.appendChild(fila);
+    });
+
+    $('presupuesto-importe-campo').classList.add('oculto');
+    $('presupuesto-items-total').textContent = 'Total: ' + monedaPresupuesto_(total);
+  }
+
+  function quitarItemPresupuestoNuevo(indice) {
+    if (!estado.presupuestoItemsNuevos[indice]) return;
+    estado.presupuestoItemsNuevos.splice(indice, 1);
+    renderizarItemsNuevosPresupuesto();
   }
 
   function actualizarSubtotalItemPresupuesto() {
@@ -3193,7 +3294,8 @@
   async function guardarItemPresupuesto(evento) {
     evento.preventDefault();
     const actual = estado.presupuestoActual;
-    if (!actual || !actual.presupuesto) return;
+    const staging = estado.itemPresupuestoStaging;
+    if (!staging && (!actual || !actual.presupuesto)) return;
 
     const item = {
       tipo: $('item-presupuesto-tipo').value,
@@ -3213,6 +3315,16 @@
     }
     if (!(item.precio_unitario >= 0)) {
       $('item-presupuesto-mensaje').textContent = 'El precio no es válido.';
+      return;
+    }
+
+    if (staging) {
+      if (!estado.presupuestoItemsNuevos.length) {
+        $('presupuesto-importe').value = '';
+      }
+      estado.presupuestoItemsNuevos.push(item);
+      cerrarFormularioItemPresupuesto();
+      renderizarItemsNuevosPresupuesto();
       return;
     }
 

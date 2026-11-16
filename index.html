@@ -440,9 +440,20 @@
         <label for="presupuesto-importe">Monto total estimado (opcional)</label>
         <input id="presupuesto-importe" type="number" min="0" step="0.01"
                inputmode="decimal" placeholder="Ej. 70000">
-        <p class="ayuda">Se guarda como un ítem global. Si vas a detallar
-          materiales y mano de obra, dejalo vacío y agregá los ítems desde el
-          detalle.</p>
+        <p class="ayuda">Para un presupuesto rápido se guarda como un ítem
+          global. Si vas a detallar materiales y mano de obra, agregá los ítems
+          abajo y dejá este monto vacío.</p>
+      </div>
+
+      <div id="presupuesto-items-campo" class="items-presupuesto-campo">
+        <div class="items-presupuesto-cabecera">
+          <span class="items-presupuesto-titulo">Ítems del presupuesto</span>
+          <button id="btn-presupuesto-agregar-item" type="button"
+                  class="btn-secundario">Agregar ítem</button>
+        </div>
+        <p class="ayuda">Cargá los ítems acá y guardá el presupuesto completo.</p>
+        <div id="presupuesto-items-lista" class="items-presupuesto-lista"></div>
+        <p id="presupuesto-items-total" class="items-presupuesto-total">Total: $0,00</p>
       </div>
 
       <label for="presupuesto-observaciones">Observaciones</label>
@@ -632,7 +643,7 @@
 
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v1.0.1</span>
+    <span id="version-pie">v1.1.0</span>
   </footer>
 
   <script src="app.js"></script>
