@@ -1529,6 +1529,13 @@ body.pdf-abierto {
   white-space: nowrap;
 }
 
+.pdf-desglose {
+  margin: 6px 0 0;
+  color: #6b7c94;
+  font-size: 10.5px;
+  text-align: right;
+}
+
 .pdf-nota {
   margin: 16px 0 0;
   color: #6b7c94;

@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -2758,6 +2758,7 @@
     boton.textContent = texto;
     boton.addEventListener('click', accion);
     contenedor.appendChild(boton);
+    return boton;
   }
 
   function crearElementoPdf_(etiqueta, clase, texto) {
@@ -2785,18 +2786,75 @@
     }
   }
 
-  function abrirPresupuestoPdf(datos) {
+  async function abrirPdfTrabajoActual(boton) {
+    const datos = estado.trabajoActual;
+    if (!datos || !datos.trabajo || !datos.trabajo.presupuesto_id) return;
+    const trabajo = datos.trabajo;
+    const adicionales = (datos.adicionales || []).filter(function (adicional) {
+      return String(adicional.estado || 'ACTIVO').toUpperCase() !== 'ANULADO';
+    });
+    const textoAnterior = boton ? boton.textContent : '';
+
+    if (boton) {
+      boton.disabled = true;
+      boton.textContent = 'Preparando PDF…';
+    }
+
+    try {
+      const presupuesto = await api('presupuesto.obtener', {
+        presupuesto_id: trabajo.presupuesto_id
+      });
+      if (estado.trabajoActual !== datos) return;
+      if (!presupuesto || !presupuesto.presupuesto) {
+        window.alert('No se encontró el presupuesto asociado al trabajo.');
+        return;
+      }
+      const totalResumen = Number(datos.resumen && datos.resumen.importe_presupuestado);
+      abrirPresupuestoPdf(presupuesto, {
+        adicionales: adicionales,
+        total: isFinite(totalResumen) ? totalResumen : Number(trabajo.importe_presupuestado) || 0,
+        actualizado: adicionales.length > 0
+      });
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    } finally {
+      if (boton) {
+        boton.disabled = false;
+        boton.textContent = textoAnterior;
+      }
+    }
+  }
+
+  function abrirPresupuestoPdf(datos, opciones) {
     if (!datos || !datos.presupuesto) return;
+    const opcionesPdf = opciones || {};
     const presupuesto = datos.presupuesto;
     const items = (datos.items || []).filter(function (item) {
       return String(item.estado || '').toUpperCase() !== 'ANULADO';
     });
+    const adicionales = (opcionesPdf.adicionales || []).filter(function (adicional) {
+      return String(adicional.estado || 'ACTIVO').toUpperCase() !== 'ANULADO';
+    });
+    const totalBase = Number(presupuesto.total) || 0;
+    const totalAdicionales = adicionales.reduce(function (total, adicional) {
+      return total + (Number(adicional.importe) || 0);
+    }, 0);
+    const totalGeneral = opcionesPdf.total !== undefined
+      ? Number(opcionesPdf.total) || 0
+      : totalBase + totalAdicionales;
+    const actualizado = !!opcionesPdf.actualizado || adicionales.length > 0;
+    const etiquetaDocumento = actualizado ? 'PRESUPUESTO ACTUALIZADO' : 'PRESUPUESTO';
+    const nombreDocumento = actualizado ? 'Presupuesto actualizado' : 'Presupuesto';
     const documento = $('presupuesto-pdf-documento');
     documento.innerHTML = '';
 
     const fechaEmision = presupuesto.fecha_elaboracion || presupuesto.fecha_solicitud;
     documento.setAttribute('data-nombre',
-      'Presupuesto ' + (presupuesto.presupuesto_id || '') + ' - ' +
+      nombreDocumento + ' ' + (presupuesto.presupuesto_id || '') + ' - ' +
       (presupuesto.cliente_nombre || 'Cliente'));
 
     const cabecera = crearElementoPdf_('div', 'pdf-cabecera');
@@ -2810,7 +2868,7 @@
     datosMarca.appendChild(crearElementoPdf_('span', 'pdf-marca-contacto', 'Web: www.zulox.com.ar'));
     marca.appendChild(datosMarca);
     const numero = crearElementoPdf_('div', 'pdf-numero');
-    numero.appendChild(crearElementoPdf_('span', null, 'PRESUPUESTO'));
+    numero.appendChild(crearElementoPdf_('span', null, etiquetaDocumento));
     numero.appendChild(crearElementoPdf_('strong', null, presupuesto.presupuesto_id || ''));
     numero.appendChild(crearElementoPdf_('small', null,
       fechaEmision ? 'Emitido el ' + fechaCorta(fechaEmision) : ''));
@@ -2890,17 +2948,40 @@
       descripcion.setAttribute('colspan', '4');
       descripcion.textContent = presupuesto.descripcion || 'Trabajo según descripción';
       fila.appendChild(descripcion);
-      fila.appendChild(crearElementoPdf_('td', 'num', monedaPresupuesto_(presupuesto.total)));
+      fila.appendChild(crearElementoPdf_('td', 'num', monedaPresupuesto_(totalBase)));
       tbody.appendChild(fila);
     }
+    adicionales.forEach(function (adicional) {
+      const fila = document.createElement('tr');
+      const descripcion = document.createElement('td');
+      descripcion.appendChild(crearElementoPdf_('strong', null,
+        adicional.descripcion || 'Adicional'));
+      const fecha = adicional.fecha ? ' · ' + fechaCorta(adicional.fecha) : '';
+      descripcion.appendChild(crearElementoPdf_('span', 'pdf-item-tipo',
+        'Adicional' + fecha));
+      fila.appendChild(descripcion);
+      fila.appendChild(crearElementoPdf_('td', 'num', '1'));
+      fila.appendChild(crearElementoPdf_('td', 'num', 'GLOBAL'));
+      fila.appendChild(crearElementoPdf_('td', 'num',
+        monedaPresupuesto_(adicional.importe)));
+      fila.appendChild(crearElementoPdf_('td', 'num',
+        monedaPresupuesto_(adicional.importe)));
+      tbody.appendChild(fila);
+    });
     tabla.appendChild(tbody);
     envoltura.appendChild(tabla);
     seccionDetalle.appendChild(envoltura);
 
     const total = crearElementoPdf_('div', 'pdf-total');
-    total.appendChild(crearElementoPdf_('span', null, 'Total estimado'));
-    total.appendChild(crearElementoPdf_('strong', null, monedaPresupuesto_(presupuesto.total)));
+    total.appendChild(crearElementoPdf_('span', null,
+      actualizado ? 'Total actualizado' : 'Total estimado'));
+    total.appendChild(crearElementoPdf_('strong', null, monedaPresupuesto_(totalGeneral)));
     seccionDetalle.appendChild(total);
+    if (adicionales.length) {
+      seccionDetalle.appendChild(crearElementoPdf_('p', 'pdf-desglose',
+        'Base ' + monedaPresupuesto_(totalBase) +
+        ' + adicionales ' + monedaPresupuesto_(totalAdicionales)));
+    }
     documento.appendChild(seccionDetalle);
 
     if (presupuesto.observaciones) {
@@ -3738,6 +3819,12 @@
       agregarAccionPresupuesto_(acciones, 'Agregar costo', 'btn-secundario', function () {
         abrirFormularioCostoTrabajo();
       });
+    }
+    if (trabajo.presupuesto_id) {
+      const botonPdf = agregarAccionPresupuesto_(acciones, 'PDF para cliente', 'btn-principal',
+        function () {
+          abrirPdfTrabajoActual(botonPdf);
+        });
     }
     if (puedeEscribir() && trabajo.estado === 'PLANIFICADO') {
       agregarAccionPresupuesto_(acciones, 'Iniciar', 'btn-principal', function () {
