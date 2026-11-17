@@ -267,7 +267,7 @@ h1 {
   line-height: 1.4;
 }
 
-.mensaje-config.ok { color: var(--verde); }
+.mensaje-error.ok, .mensaje-config.ok { color: var(--verde); }
 
 .bienvenida {
   display: flex;

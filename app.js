@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.2';
+  const VERSION = '1.1.3';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -4813,23 +4813,37 @@
   async function registrarCobro(evento) {
     evento.preventDefault();
     const trabajoId = $('cobro-trabajo').value;
-    const importe = Number($('cobro-importe').value);
+    const importe = parseImporte_($('cobro-importe').value);
     const fecha = $('cobro-fecha').value || fechaISO(new Date());
     const estadoMovimiento = $('cobro-estado').value || 'COBRADO';
+    const mensaje = $('cobro-mensaje');
+
+    if (!$('cobro-fecha').value) $('cobro-fecha').value = fecha;
+
+    mensaje.classList.remove('ok');
+    mensaje.textContent = '';
 
     if (!trabajoId) {
-      $('cobro-mensaje').textContent = 'Elegí el trabajo que vas a cobrar.';
+      mensaje.textContent = 'Elegí el trabajo que vas a cobrar.';
+      $('cobro-trabajo').focus();
       return;
     }
     if (!(importe > 0)) {
-      $('cobro-mensaje').textContent = 'El importe debe ser mayor a cero.';
+      mensaje.textContent = 'El importe debe ser mayor a cero.';
+      $('cobro-importe').focus();
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      mensaje.textContent = 'Elegí una fecha válida.';
+      $('cobro-fecha').focus();
       return;
     }
 
     const boton = $('btn-cobro-guardar');
     boton.disabled = true;
     boton.textContent = 'Guardando…';
-    $('cobro-mensaje').textContent = '';
+    mensaje.textContent = 'Registrando cobro…';
+    mensaje.classList.add('ok');
     if (!estado.cobroIdempotencia) estado.cobroIdempotencia = nuevaClave();
 
     try {
@@ -4848,16 +4862,20 @@
       $('cobro-importe').value = '';
       $('cobro-descripcion').value = '';
       await cargarEconomia();
-      $('economia-mensaje').textContent = estadoMovimiento === 'COBRADO'
+      const textoExito = estadoMovimiento === 'COBRADO'
         ? 'Cobro registrado.'
         : 'Cobro pendiente registrado.';
+      $('economia-mensaje').textContent = textoExito;
       $('economia-mensaje').classList.add('ok');
+      mensaje.textContent = textoExito;
+      mensaje.classList.add('ok');
     } catch (error) {
+      mensaje.classList.remove('ok');
       if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
         manejarError(error);
         return;
       }
-      $('cobro-mensaje').textContent = error.message;
+      mensaje.textContent = error.message;
     } finally {
       boton.disabled = false;
       boton.textContent = 'Registrar cobro';
@@ -5275,6 +5293,30 @@
       .replace(/[.,;:!?¿¡]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function parseImporte_(texto) {
+    let limpio = String(texto || '').trim().replace(/\s+/g, '').replace(/[^\d.,-]/g, '');
+    if (!limpio) return 0;
+    const ultimaComa = limpio.lastIndexOf(',');
+    const ultimoPunto = limpio.lastIndexOf('.');
+    if (ultimaComa !== -1 && ultimoPunto !== -1) {
+      if (ultimaComa > ultimoPunto) {
+        limpio = limpio.replace(/\./g, '').replace(',', '.');
+      } else {
+        limpio = limpio.replace(/,/g, '');
+      }
+    } else if (ultimaComa !== -1) {
+      if ((limpio.match(/,/g) || []).length > 1) return 0;
+      limpio = limpio.replace(',', '.');
+    } else if (ultimoPunto !== -1) {
+      const partes = limpio.split('.');
+      if (partes.length > 2 || (partes.length === 2 && partes[1].length === 3)) {
+        limpio = limpio.replace(/\./g, '');
+      }
+    }
+    const numero = Number(limpio);
+    return isFinite(numero) ? numero : 0;
   }
 
   function nuevaClave() {
