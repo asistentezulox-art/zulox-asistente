@@ -1734,3 +1734,133 @@ body.pdf-abierto {
   .economia-totales { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .economia-movimiento-superior { flex-direction: column; gap: 2px; }
 }
+
+/* Etapa 10 - Articulos y escaner */
+
+.articulo-item {
+  gap: 5px;
+}
+
+.articulo-codigo {
+  color: var(--celeste);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.articulo-precios {
+  color: var(--blanco);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.campo-con-boton {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.campo-con-boton input {
+  flex: 1;
+  min-width: 0;
+}
+
+.campo-con-boton .btn-secundario {
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.item-articulo-vinculo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px dashed var(--azul-borde);
+  border-radius: 12px;
+  background: rgba(7, 25, 46, 0.4);
+}
+
+.item-articulo-vinculo .btn-secundario {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+}
+
+.item-articulo-vinculo .btn-texto {
+  margin: 0;
+  align-self: center;
+  font-size: 0.8rem;
+}
+
+.item-articulo-estado {
+  flex: 1;
+  min-width: 140px;
+  color: var(--gris);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.dialogo-escaner {
+  width: min(94vw, 540px);
+}
+
+.escaner-contenido {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.escaner-video-marco {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--azul-borde);
+  border-radius: 14px;
+  background: #01060c;
+}
+
+.escaner-video-marco video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.escaner-guia {
+  position: absolute;
+  inset: 18% 8%;
+  border: 2px solid rgba(76, 195, 255, 0.85);
+  border-radius: 12px;
+  box-shadow: 0 0 0 999px rgba(2, 9, 18, 0.35);
+  pointer-events: none;
+}
+
+.escaner-guia::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  height: 2px;
+  background: rgba(76, 195, 255, 0.65);
+  box-shadow: 0 0 12px rgba(76, 195, 255, 0.8);
+}
+
+@media (max-width: 480px) {
+  .campo-con-boton {
+    flex-direction: column;
+  }
+
+  .campo-con-boton .btn-secundario {
+    padding: 11px 14px;
+  }
+
+  .item-articulo-vinculo {
+    align-items: flex-start;
+  }
+}

@@ -122,6 +122,10 @@
         Economía
       </button>
 
+      <button id="btn-articulos" type="button" class="btn-secundario btn-agenda">
+        Artículos
+      </button>
+
       <form id="form-manual" class="formulario-manual">
         <label class="oculto" for="entrada-manual">Escribir en lugar de hablar</label>
         <input id="entrada-manual" type="text" autocomplete="off" maxlength="500"
@@ -221,6 +225,39 @@
       <p id="presupuestos-mensaje" class="mensaje-config" role="status"></p>
       <div id="presupuestos-lista" class="agenda-lista" aria-live="polite"></div>
       <div id="presupuesto-detalle" class="directorio-detalle oculto"></div>
+    </section>
+
+    <section id="pantalla-articulos" class="pantalla oculto">
+      <div class="agenda-cabecera">
+        <div>
+          <h1>Artículos</h1>
+          <p id="articulos-titulo" class="agenda-titulo">Artículos activos</p>
+        </div>
+        <button id="btn-articulos-volver" type="button" class="btn-texto">Volver</button>
+      </div>
+
+      <div class="presupuestos-filtros" role="group" aria-label="Estado del artículo">
+        <button type="button" class="btn-filtro activo" data-estado-articulo="ACTIVO">Activos</button>
+        <button type="button" class="btn-filtro" data-estado-articulo="ANULADO">Anulados</button>
+        <button type="button" class="btn-filtro" data-estado-articulo="TODOS">Todos</button>
+      </div>
+
+      <form id="form-buscar-articulo" class="formulario-manual">
+        <label class="oculto" for="buscar-articulo">Buscar artículo</label>
+        <input id="buscar-articulo" type="search" autocomplete="off" maxlength="100"
+               placeholder="Buscar por descripción, código o proveedor">
+        <button type="submit" class="btn-enviar" aria-label="Buscar artículo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 1 1-4.5 10l-3.2 3.2 1.4 1.4L6.9 15.4A6 6 0 0 1 10 4Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/></svg>
+        </button>
+      </form>
+
+      <div class="directorio-acciones">
+        <button id="btn-articulos-escanear" type="button" class="btn-secundario">Escanear código</button>
+        <button id="btn-nuevo-articulo" type="button" class="btn-principal">Nuevo artículo</button>
+      </div>
+
+      <p id="articulos-mensaje" class="mensaje-config" role="status"></p>
+      <div id="articulos-lista" class="agenda-lista" aria-live="polite"></div>
     </section>
 
     <section id="pantalla-trabajos" class="pantalla oculto">
@@ -482,6 +519,12 @@
       <label for="item-presupuesto-descripcion">Descripción</label>
       <input id="item-presupuesto-descripcion" type="text" maxlength="300" required>
 
+      <div class="item-articulo-vinculo">
+        <button id="btn-item-presupuesto-escanear" type="button" class="btn-secundario">Escanear artículo</button>
+        <span id="item-presupuesto-articulo" class="item-articulo-estado">Sin artículo vinculado</span>
+        <button id="btn-item-presupuesto-desvincular" type="button" class="btn-texto oculto">Quitar vínculo</button>
+      </div>
+
       <div class="form-tres">
         <div>
           <label for="item-presupuesto-cantidad">Cantidad</label>
@@ -510,6 +553,90 @@
         <button id="btn-item-presupuesto-cancelar" type="button" class="btn-secundario">Cancelar</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="dialogo-articulo" class="dialogo">
+    <form id="form-articulo" class="formulario">
+      <h2 id="articulo-form-titulo">Nuevo artículo</h2>
+      <p id="articulo-form-contexto" class="ayuda"></p>
+
+      <label for="articulo-descripcion">Descripción</label>
+      <input id="articulo-descripcion" type="text" maxlength="200" required autocomplete="off">
+
+      <label for="articulo-codigo">Código de barras (opcional)</label>
+      <div class="campo-con-boton">
+        <input id="articulo-codigo" type="text" maxlength="80" inputmode="text"
+               autocomplete="off" placeholder="Escribí o escaneá el código">
+        <button id="btn-articulo-escanear" type="button" class="btn-secundario">Escanear</button>
+      </div>
+      <p class="ayuda">El código debe ser único. Si el artículo no tiene etiqueta, dejalo vacío.</p>
+
+      <div class="form-doble">
+        <div>
+          <label for="articulo-unidad">Unidad</label>
+          <select id="articulo-unidad">
+            <option value="UN">UN</option>
+            <option value="M">M</option>
+            <option value="M2">M2</option>
+            <option value="HORA">HORA</option>
+            <option value="GLOBAL">GLOBAL</option>
+          </select>
+        </div>
+        <div>
+          <label for="articulo-precio-venta">Precio de venta</label>
+          <input id="articulo-precio-venta" type="number" min="0" step="0.01" required>
+        </div>
+      </div>
+
+      <div class="form-doble">
+        <div>
+          <label for="articulo-precio-ultimo">Último costo</label>
+          <input id="articulo-precio-ultimo" type="number" min="0" step="0.01">
+        </div>
+        <div>
+          <label for="articulo-proveedor">Proveedor habitual</label>
+          <input id="articulo-proveedor" type="text" maxlength="100" autocomplete="off">
+        </div>
+      </div>
+
+      <label for="articulo-observaciones">Observaciones</label>
+      <textarea id="articulo-observaciones" maxlength="500" rows="2"></textarea>
+
+      <p id="articulo-form-mensaje" class="mensaje-error" role="alert"></p>
+      <div class="acciones-formulario">
+        <button id="btn-articulo-guardar" type="submit" class="btn-principal">Guardar artículo</button>
+        <button id="btn-articulo-anular" type="button" class="btn-peligro oculto">Anular</button>
+        <button id="btn-articulo-reactivar" type="button" class="btn-secundario oculto">Reactivar</button>
+        <button id="btn-articulo-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialogo-escaner" class="dialogo dialogo-escaner">
+    <div class="escaner-contenido">
+      <h2>Escanear código</h2>
+      <p id="escaner-contexto" class="ayuda">Apuntá la cámara al código de barras.</p>
+
+      <div class="escaner-video-marco">
+        <video id="escaner-video" playsinline muted></video>
+        <div class="escaner-guia" aria-hidden="true"></div>
+      </div>
+
+      <p id="escaner-estado" class="mensaje-config" role="status"></p>
+
+      <form id="form-escaner-manual" class="formulario-manual">
+        <label class="oculto" for="escaner-codigo">Código de barras</label>
+        <input id="escaner-codigo" type="text" maxlength="80" inputmode="text"
+               autocomplete="off" placeholder="O escribí el código">
+        <button type="submit" class="btn-enviar" aria-label="Usar código">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 20 18-8L3 4v6l12 2-12 2v6Z"/></svg>
+        </button>
+      </form>
+
+      <div class="acciones-formulario">
+        <button id="btn-escaner-cancelar" type="button" class="btn-secundario">Cancelar</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="dialogo-trabajo" class="dialogo">
@@ -643,9 +770,10 @@
 
   <footer class="pie">
     <span>ZULOX_ASISTENTE</span>
-    <span id="version-pie">v1.1.3</span>
+    <span id="version-pie">v1.2.0</span>
   </footer>
 
+  <script src="vendor/zxing/zxing-browser.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

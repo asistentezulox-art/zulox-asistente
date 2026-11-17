@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.3';
+  const VERSION = '1.2.0';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -72,6 +72,20 @@
     clientesFormulario: [],
     itemPresupuestoEditando: null,
     itemPresupuestoStaging: false,
+    itemPresupuestoMaterial: null,
+    itemPresupuestoSolicitud: 0,
+    articulosEstado: 'ACTIVO',
+    articulosItems: [],
+    articulosCargando: false,
+    articuloEditando: null,
+    articuloGuardando: false,
+    articuloCallback: null,
+    escanerCallback: null,
+    escanerActivo: false,
+    escanerTimer: null,
+    escanerStream: null,
+    escanerControls: null,
+    escanerDetector: null,
     trabajosEstado: 'TODOS',
     trabajosItems: [],
     trabajosCargando: false,
@@ -99,6 +113,7 @@
     agenda: $('pantalla-agenda'),
     directorio: $('pantalla-directorio'),
     presupuestos: $('pantalla-presupuestos'),
+    articulos: $('pantalla-articulos'),
     trabajos: $('pantalla-trabajos'),
     economia: $('pantalla-economia')
   };
@@ -160,6 +175,24 @@
     $('btn-duplicados-cerrar').addEventListener('click', cerrarDialogoDuplicados);
     $('btn-presupuestos').addEventListener('click', function () { abrirPresupuestos(); });
     $('btn-presupuestos-volver').addEventListener('click', function () { irA('principal'); });
+    $('btn-articulos').addEventListener('click', function () { abrirArticulos(); });
+    $('btn-articulos-volver').addEventListener('click', function () { irA('principal'); });
+    $('form-buscar-articulo').addEventListener('submit', buscarArticulosPantalla);
+    $('btn-nuevo-articulo').addEventListener('click', function () { abrirFormularioArticulo(); });
+    $('btn-articulos-escanear').addEventListener('click', escanearBuscarArticulo);
+    $('form-articulo').addEventListener('submit', guardarArticulo);
+    $('btn-articulo-cancelar').addEventListener('click', cerrarFormularioArticulo);
+    $('btn-articulo-anular').addEventListener('click', anularArticuloActual);
+    $('btn-articulo-reactivar').addEventListener('click', reactivarArticuloActual);
+    $('btn-articulo-escanear').addEventListener('click', escanearCodigoArticulo);
+    $('form-escaner-manual').addEventListener('submit', usarCodigoEscanerManual);
+    $('btn-escaner-cancelar').addEventListener('click', cerrarEscaner);
+    $('dialogo-escaner').addEventListener('close', function () {
+      estado.escanerCallback = null;
+      detenerEscaner_();
+    });
+    $('btn-item-presupuesto-escanear').addEventListener('click', escanearItemPresupuesto);
+    $('btn-item-presupuesto-desvincular').addEventListener('click', desvincularArticuloItemPresupuesto);
     $('btn-trabajos').addEventListener('click', function () { abrirTrabajos(); });
     $('btn-trabajos-volver').addEventListener('click', function () { irA('principal'); });
     $('btn-economia').addEventListener('click', function () { abrirEconomia('mes'); });
@@ -226,6 +259,11 @@
         abrirDirectorio(boton.getAttribute('data-tipo'));
       });
     });
+    document.querySelectorAll('[data-estado-articulo]').forEach(function (boton) {
+      boton.addEventListener('click', function () {
+        abrirArticulos(boton.getAttribute('data-estado-articulo'));
+      });
+    });
 
     window.addEventListener('online', actualizarConexion);
     window.addEventListener('offline', actualizarConexion);
@@ -241,7 +279,7 @@
     });
     const enPrincipal = nombre === 'principal' || nombre === 'agenda' ||
       nombre === 'directorio' || nombre === 'presupuestos' ||
-      nombre === 'trabajos' || nombre === 'economia';
+      nombre === 'articulos' || nombre === 'trabajos' || nombre === 'economia';
     $('btn-salir').classList.toggle('oculto', !enPrincipal);
     $('btn-config').classList.toggle('oculto', nombre === 'config');
     window.scrollTo(0, 0);
@@ -2319,6 +2357,333 @@
     }
   }
 
+  function abrirArticulos(filtro) {
+    if (filtro !== undefined) {
+      estado.articulosEstado = String(filtro || 'ACTIVO').toUpperCase();
+    }
+    estado.articulosItems = [];
+    $('buscar-articulo').value = '';
+    actualizarFiltrosArticulos();
+    irA('articulos');
+    cargarArticulos();
+  }
+
+  function actualizarFiltrosArticulos() {
+    document.querySelectorAll('[data-estado-articulo]').forEach(function (boton) {
+      boton.classList.toggle('activo',
+        boton.getAttribute('data-estado-articulo') === estado.articulosEstado);
+    });
+    const titulos = {
+      ACTIVO: 'Artículos activos',
+      ANULADO: 'Artículos anulados',
+      TODOS: 'Todos los artículos'
+    };
+    $('articulos-titulo').textContent =
+      titulos[estado.articulosEstado] || titulos.ACTIVO;
+  }
+
+  function buscarArticulosPantalla(evento) {
+    evento.preventDefault();
+    cargarArticulos();
+  }
+
+  async function cargarArticulos() {
+    if (estado.articulosCargando) return;
+    estado.articulosCargando = true;
+
+    const datos = {
+      texto: $('buscar-articulo').value.trim(),
+      estado: estado.articulosEstado
+    };
+    $('articulos-mensaje').textContent = 'Cargando…';
+    $('articulos-mensaje').classList.remove('ok');
+    $('articulos-lista').innerHTML = '';
+
+    try {
+      const items = await api('articulo.buscar', datos);
+      estado.articulosItems = items || [];
+      renderizarArticulos(estado.articulosItems);
+    } catch (error) {
+      $('articulos-mensaje').textContent = error.message;
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      }
+    } finally {
+      estado.articulosCargando = false;
+    }
+  }
+
+  function renderizarArticulos(items) {
+    const lista = $('articulos-lista');
+    lista.innerHTML = '';
+
+    if (!items.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'agenda-vacio';
+      vacio.textContent = estado.articulosEstado === 'ACTIVO'
+        ? 'Todavía no hay artículos cargados.'
+        : 'No encontré artículos con ese filtro.';
+      lista.appendChild(vacio);
+      $('articulos-mensaje').textContent = '';
+      return;
+    }
+
+    $('articulos-mensaje').textContent = items.length +
+      (items.length === 1 ? ' artículo.' : ' artículos.');
+
+    items.forEach(function (articulo) {
+      const tarjeta = document.createElement('button');
+      tarjeta.type = 'button';
+      tarjeta.className = 'presupuesto-item articulo-item';
+
+      const superior = document.createElement('div');
+      superior.className = 'presupuesto-item-superior';
+
+      const descripcion = document.createElement('strong');
+      descripcion.textContent = articulo.descripcion || 'Artículo';
+
+      const estadoNodo = document.createElement('span');
+      estadoNodo.className = 'presupuesto-estado ' +
+        (articulo.estado === 'ANULADO'
+          ? 'presupuesto-estado-anulado'
+          : 'presupuesto-estado-aceptado');
+      estadoNodo.textContent = articulo.estado === 'ANULADO' ? 'Anulado' : 'Activo';
+
+      superior.appendChild(descripcion);
+      superior.appendChild(estadoNodo);
+
+      const codigo = document.createElement('span');
+      codigo.className = 'articulo-codigo';
+      codigo.textContent = articulo.codigo_barras
+        ? 'Código: ' + articulo.codigo_barras
+        : 'Sin código de barras';
+
+      const precios = document.createElement('span');
+      precios.className = 'articulo-precios';
+      precios.textContent = 'Venta ' + monedaPresupuesto_(articulo.precio_venta) +
+        ' · Costo ' + monedaPresupuesto_(articulo.precio_ultimo);
+
+      const meta = document.createElement('span');
+      meta.className = 'presupuesto-meta';
+      const partes = [articulo.unidad || 'UN'];
+      if (articulo.proveedor_habitual) partes.push(articulo.proveedor_habitual);
+      if (articulo.fecha_modificacion) {
+        partes.push('Actualizado ' + fechaCorta(String(articulo.fecha_modificacion).slice(0, 10)));
+      }
+      meta.textContent = partes.join(' · ');
+
+      tarjeta.appendChild(superior);
+      tarjeta.appendChild(codigo);
+      tarjeta.appendChild(precios);
+      tarjeta.appendChild(meta);
+      tarjeta.addEventListener('click', function () {
+        abrirFormularioArticulo(articulo);
+      });
+      lista.appendChild(tarjeta);
+    });
+  }
+
+  function abrirFormularioArticulo(articulo, opciones) {
+    const config = opciones || {};
+    const edicion = !!(articulo && articulo.material_id);
+    if (!edicion && !puedeEscribir()) {
+      window.alert('Tu usuario es de solo lectura.');
+      return;
+    }
+
+    const escribible = puedeEscribir();
+    const anulado = edicion && String(articulo.estado || '').toUpperCase() === 'ANULADO';
+    estado.articuloEditando = edicion ? articulo : null;
+    estado.articuloCallback = typeof config.callback === 'function' ? config.callback : null;
+    estado.articuloGuardando = false;
+
+    $('articulo-form-titulo').textContent = edicion ? 'Editar artículo' : 'Nuevo artículo';
+    $('articulo-form-contexto').textContent = edicion
+      ? articulo.material_id + ' · ' + (articulo.estado === 'ANULADO' ? 'Anulado' : 'Activo')
+      : (config.codigo ? 'Artículo nuevo desde el código ' + config.codigo : 'Catálogo de artículos');
+    $('articulo-descripcion').value = edicion ? (articulo.descripcion || '') : '';
+    $('articulo-codigo').value = config.codigo ||
+      (edicion ? (articulo.codigo_barras || '') : '');
+    $('articulo-unidad').value = edicion ? (articulo.unidad || 'UN') : 'UN';
+    $('articulo-precio-venta').value = edicion ? (articulo.precio_venta || 0) : 0;
+    $('articulo-precio-ultimo').value = edicion ? (articulo.precio_ultimo || 0) : 0;
+    $('articulo-proveedor').value = edicion ? (articulo.proveedor_habitual || '') : '';
+    $('articulo-observaciones').value = edicion ? (articulo.observaciones || '') : '';
+    $('articulo-form-mensaje').textContent = '';
+
+    $('form-articulo').querySelectorAll('input, select, textarea').forEach(function (campo) {
+      campo.disabled = !escribible;
+    });
+    $('btn-articulo-guardar').classList.toggle('oculto', !escribible);
+    $('btn-articulo-anular').classList.toggle('oculto',
+      !edicion || anulado || !escribible || !esPropietario());
+    $('btn-articulo-reactivar').classList.toggle('oculto',
+      !edicion || !anulado || !escribible || !esPropietario());
+
+    mostrarDialogo_('dialogo-articulo');
+    setTimeout(function () {
+      if (escribible) $('articulo-descripcion').focus();
+    }, 50);
+  }
+
+  function cerrarFormularioArticulo() {
+    estado.articuloEditando = null;
+    estado.articuloCallback = null;
+    estado.articuloGuardando = false;
+    $('articulo-form-mensaje').textContent = '';
+    ocultarDialogo_('dialogo-articulo');
+  }
+
+  async function guardarArticulo(evento) {
+    evento.preventDefault();
+    if (estado.articuloGuardando || !puedeEscribir()) return;
+
+    const editando = estado.articuloEditando;
+    const entrada = {
+      descripcion: $('articulo-descripcion').value.trim(),
+      codigo_barras: $('articulo-codigo').value.trim(),
+      unidad: $('articulo-unidad').value,
+      precio_venta: Number($('articulo-precio-venta').value),
+      precio_ultimo: Number($('articulo-precio-ultimo').value) || 0,
+      proveedor_habitual: $('articulo-proveedor').value.trim(),
+      observaciones: $('articulo-observaciones').value.trim()
+    };
+
+    if (!entrada.descripcion) {
+      $('articulo-form-mensaje').textContent = 'Escribí la descripción del artículo.';
+      return;
+    }
+    if (!(entrada.precio_venta >= 0)) {
+      $('articulo-form-mensaje').textContent = 'El precio de venta no es válido.';
+      return;
+    }
+    if (!(entrada.precio_ultimo >= 0)) {
+      $('articulo-form-mensaje').textContent = 'El último costo no es válido.';
+      return;
+    }
+
+    const boton = $('btn-articulo-guardar');
+    const callback = estado.articuloCallback;
+    estado.articuloGuardando = true;
+    $('articulo-form-mensaje').textContent = '';
+    boton.disabled = true;
+    boton.textContent = 'Guardando…';
+
+    try {
+      let resultado;
+      if (editando) {
+        resultado = await api('articulo.actualizar', Object.assign({
+          material_id: editando.material_id
+        }, entrada));
+      } else {
+        resultado = await api('articulo.crear', { articulo: entrada });
+      }
+
+      estado.articuloEditando = null;
+      estado.articuloCallback = null;
+      ocultarDialogo_('dialogo-articulo');
+      if (pantallas.articulos && !pantallas.articulos.classList.contains('oculto')) {
+        await cargarArticulos();
+        $('articulos-mensaje').textContent = editando
+          ? 'Artículo actualizado.'
+          : 'Artículo creado.';
+        $('articulos-mensaje').classList.add('ok');
+      }
+      if (callback) await callback(resultado);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        cerrarFormularioArticulo();
+        manejarError(error);
+      } else {
+        $('articulo-form-mensaje').textContent = error.message;
+      }
+    } finally {
+      estado.articuloGuardando = false;
+      boton.disabled = false;
+      boton.textContent = 'Guardar artículo';
+    }
+  }
+
+  async function anularArticuloActual() {
+    const articulo = estado.articuloEditando;
+    if (!articulo || !esPropietario()) return;
+    const seguro = window.confirm('¿Anular «' + articulo.descripcion + '»?\n\n' +
+      'No se borra: deja de aparecer para cargar en presupuestos.');
+    if (!seguro) return;
+
+    try {
+      await api('articulo.anular', {
+        material_id: articulo.material_id,
+        motivo: 'Anulado desde la pantalla'
+      });
+      cerrarFormularioArticulo();
+      await cargarArticulos();
+      $('articulos-mensaje').textContent = 'Artículo anulado.';
+      $('articulos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        $('articulo-form-mensaje').textContent = error.message;
+      }
+    }
+  }
+
+  async function reactivarArticuloActual() {
+    const articulo = estado.articuloEditando;
+    if (!articulo || !esPropietario()) return;
+
+    try {
+      await api('articulo.reactivar', { material_id: articulo.material_id });
+      cerrarFormularioArticulo();
+      await cargarArticulos();
+      $('articulos-mensaje').textContent = 'Artículo reactivado.';
+      $('articulos-mensaje').classList.add('ok');
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        $('articulo-form-mensaje').textContent = error.message;
+      }
+    }
+  }
+
+  function escanearCodigoArticulo() {
+    abrirEscaner({
+      contexto: 'Escaneá el código del artículo.',
+      callback: function (codigo) {
+        $('articulo-codigo').value = codigo;
+        $('articulo-codigo').focus();
+      }
+    });
+  }
+
+  function escanearBuscarArticulo() {
+    abrirEscaner({
+      contexto: 'Escaneá un código para buscarlo en el catálogo.',
+      callback: buscarArticuloPorCodigoEscaneado_
+    });
+  }
+
+  async function buscarArticuloPorCodigoEscaneado_(codigo) {
+    try {
+      const articulo = await api('articulo.por_codigo', { codigo_barras: codigo });
+      if (articulo) {
+        abrirFormularioArticulo(articulo);
+        return;
+      }
+      const crear = window.confirm('No encontré el código ' + codigo +
+        ' en el catálogo.\n\n¿Querés crear el artículo ahora?');
+      if (crear) abrirFormularioArticulo(null, { codigo: codigo });
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    }
+  }
+
   function abrirPresupuestos(filtro) {
     if (filtro !== undefined) {
       const nuevo = String(filtro || 'TODOS').toUpperCase();
@@ -2751,6 +3116,7 @@
     meta.textContent = tipoItemPresupuestoLegible_(item.tipo) + ' · ' +
       item.cantidad + ' ' + item.unidad + ' × ' +
       monedaPresupuesto_(item.precio_unitario) +
+      (item.material_id ? ' · ' + item.material_id : '') +
       (item.estado === 'ANULADO' ? ' · ANULADO' : '');
 
     cuerpo.appendChild(descripcion);
@@ -3248,7 +3614,8 @@
           descripcion: item.descripcion,
           cantidad: item.cantidad,
           unidad: item.unidad,
-          precio_unitario: item.precio_unitario
+          precio_unitario: item.precio_unitario,
+          material_id: item.material_id || ''
         };
       });
     } else if (!edicion && importe > 0) {
@@ -3310,6 +3677,10 @@
     const edicion = !!item;
     estado.itemPresupuestoStaging = false;
     estado.itemPresupuestoEditando = edicion ? item : null;
+    estado.itemPresupuestoMaterial = edicion && item.material_id
+      ? { material_id: item.material_id, descripcion: item.descripcion, codigo_barras: '' }
+      : null;
+    const solicitud = ++estado.itemPresupuestoSolicitud;
     $('item-presupuesto-titulo').textContent = edicion ? 'Editar ítem' : 'Agregar ítem';
     $('item-presupuesto-contexto').textContent = actual.presupuesto.presupuesto_id +
       ' · ' + (actual.presupuesto.cliente_nombre || '');
@@ -3319,16 +3690,323 @@
     $('item-presupuesto-unidad').value = edicion ? item.unidad : 'UN';
     $('item-presupuesto-precio').value = edicion ? item.precio_unitario : '0';
     $('item-presupuesto-mensaje').textContent = '';
+    actualizarVistaArticuloItemPresupuesto_();
     actualizarSubtotalItemPresupuesto();
     mostrarDialogo_('dialogo-item-presupuesto');
     setTimeout(function () { $('item-presupuesto-descripcion').focus(); }, 50);
+
+    if (edicion && item.material_id) {
+      api('articulo.obtener', { material_id: item.material_id }).then(function (articulo) {
+        if (solicitud !== estado.itemPresupuestoSolicitud) return;
+        if (!estado.itemPresupuestoMaterial ||
+            estado.itemPresupuestoMaterial.material_id !== item.material_id) return;
+        estado.itemPresupuestoMaterial = articulo;
+        actualizarVistaArticuloItemPresupuesto_();
+      }).catch(function () {});
+    }
   }
 
   function cerrarFormularioItemPresupuesto() {
+    estado.itemPresupuestoSolicitud++;
     estado.itemPresupuestoEditando = null;
     estado.itemPresupuestoStaging = false;
+    estado.itemPresupuestoMaterial = null;
     $('item-presupuesto-mensaje').textContent = '';
     ocultarDialogo_('dialogo-item-presupuesto');
+  }
+
+  function actualizarVistaArticuloItemPresupuesto_() {
+    const articulo = estado.itemPresupuestoMaterial;
+    const nodo = $('item-presupuesto-articulo');
+    const quitar = $('btn-item-presupuesto-desvincular');
+    if (!articulo) {
+      nodo.textContent = 'Sin artículo vinculado';
+      quitar.classList.add('oculto');
+      return;
+    }
+    nodo.textContent = (articulo.codigo_barras ? articulo.codigo_barras + ' · ' : '') +
+      (articulo.descripcion || articulo.material_id || 'Artículo');
+    quitar.classList.remove('oculto');
+  }
+
+  function vincularArticuloAItemPresupuesto_(articulo) {
+    if (!articulo || !dialogoAbierto_('dialogo-item-presupuesto')) return;
+    if (String(articulo.estado || 'ACTIVO').toUpperCase() !== 'ACTIVO') {
+      $('item-presupuesto-mensaje').textContent =
+        'El artículo ' + (articulo.descripcion || articulo.material_id) + ' está anulado.';
+      return;
+    }
+
+    estado.itemPresupuestoMaterial = articulo;
+    $('item-presupuesto-tipo').value = 'MATERIAL';
+    $('item-presupuesto-descripcion').value = articulo.descripcion || '';
+    $('item-presupuesto-unidad').value = articulo.unidad || 'UN';
+    $('item-presupuesto-precio').value = Number(articulo.precio_venta) || 0;
+    if (!(Number($('item-presupuesto-cantidad').value) > 0)) {
+      $('item-presupuesto-cantidad').value = '1';
+    }
+    $('item-presupuesto-mensaje').textContent = Number(articulo.precio_venta) > 0
+      ? ''
+      : 'El artículo no tiene precio de venta cargado. Revisá el precio.';
+    actualizarVistaArticuloItemPresupuesto_();
+    actualizarSubtotalItemPresupuesto();
+    $('item-presupuesto-cantidad').focus();
+  }
+
+  async function escanearItemPresupuesto() {
+    abrirEscaner({
+      contexto: 'Escaneá el artículo que querés agregar al presupuesto.',
+      callback: buscarArticuloParaItemPresupuesto_
+    });
+  }
+
+  async function buscarArticuloParaItemPresupuesto_(codigo) {
+    try {
+      const articulo = await api('articulo.por_codigo', { codigo_barras: codigo });
+      if (articulo) {
+        vincularArticuloAItemPresupuesto_(articulo);
+        return;
+      }
+      const crear = window.confirm('No encontré el código ' + codigo +
+        ' en el catálogo.\n\n¿Querés crear el artículo y vincularlo al ítem?');
+      if (!crear) {
+        $('item-presupuesto-mensaje').textContent =
+          'Código no encontrado. Podés escribirlo a mano o cargar el artículo.';
+        return;
+      }
+      abrirFormularioArticulo(null, {
+        codigo: codigo,
+        callback: function (nuevo) {
+          vincularArticuloAItemPresupuesto_(nuevo);
+        }
+      });
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        $('item-presupuesto-mensaje').textContent = error.message;
+      }
+    }
+  }
+
+  function desvincularArticuloItemPresupuesto() {
+    estado.itemPresupuestoMaterial = null;
+    actualizarVistaArticuloItemPresupuesto_();
+  }
+
+  function abrirEscaner(opciones) {
+    const config = opciones || {};
+    detenerEscaner_();
+    estado.escanerCallback = typeof config.callback === 'function' ? config.callback : null;
+    $('escaner-contexto').textContent = config.contexto ||
+      'Apuntá la cámara al código de barras.';
+    $('escaner-codigo').value = '';
+    $('escaner-estado').textContent = 'Iniciando cámara…';
+    $('escaner-estado').classList.remove('ok');
+    $('escaner-video').removeAttribute('src');
+    mostrarDialogo_('dialogo-escaner');
+    setTimeout(iniciarEscaner_, 80);
+  }
+
+  async function iniciarEscaner_() {
+    if (!dialogoAbierto_('dialogo-escaner')) return;
+    detenerEscaner_();
+    estado.escanerActivo = true;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $('escaner-estado').textContent =
+        'La cámara no está disponible. Escribí el código abajo.';
+      estado.escanerActivo = false;
+      return;
+    }
+
+    const detector = await crearDetectorBarras_();
+    if (detector) {
+      try {
+        await iniciarCamaraNativa_(detector);
+        return;
+      } catch (error) {
+        if (esErrorPermisoCamara_(error)) {
+          manejarErrorEscaner_(error);
+          return;
+        }
+        detenerEscaner_();
+        estado.escanerActivo = true;
+      }
+    }
+    await iniciarEscanerZXing_();
+  }
+
+  async function crearDetectorBarras_() {
+    if (!('BarcodeDetector' in window)) return null;
+    const formatos = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
+    try {
+      if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+        const soportados = await window.BarcodeDetector.getSupportedFormats();
+        const disponibles = formatos.filter(function (formato) {
+          return soportados.indexOf(formato) !== -1;
+        });
+        if (disponibles.length) {
+          return new window.BarcodeDetector({ formats: disponibles });
+        }
+      }
+      return new window.BarcodeDetector({ formats: formatos });
+    } catch (error) {
+      try {
+        return new window.BarcodeDetector();
+      } catch (errorSinFormatos) {
+        return null;
+      }
+    }
+  }
+
+  async function iniciarCamaraNativa_(detector) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+    if (!estado.escanerActivo) {
+      detenerStream_(stream);
+      return;
+    }
+
+    const video = $('escaner-video');
+    estado.escanerStream = stream;
+    estado.escanerDetector = detector;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.srcObject = stream;
+    await video.play();
+    $('escaner-estado').textContent = 'Buscando código…';
+    programarDeteccionBarras_();
+  }
+
+  function programarDeteccionBarras_() {
+    clearTimeout(estado.escanerTimer);
+    estado.escanerTimer = setTimeout(async function () {
+      if (!estado.escanerActivo || !estado.escanerDetector) return;
+      const video = $('escaner-video');
+      if (video.readyState >= 2) {
+        try {
+          const codigos = await estado.escanerDetector.detect(video);
+          if (codigos && codigos.length && codigos[0].rawValue) {
+            procesarCodigoEscaner_(codigos[0].rawValue);
+            return;
+          }
+        } catch (error) {
+        }
+      }
+      programarDeteccionBarras_();
+    }, 300);
+  }
+
+  async function iniciarEscanerZXing_() {
+    if (!estado.escanerActivo || !dialogoAbierto_('dialogo-escaner')) return;
+    const ZXing = window.ZXingBrowser;
+    if (!ZXing || !ZXing.BrowserMultiFormatReader) {
+      $('escaner-estado').textContent =
+        'No pude iniciar la cámara. Escribí el código abajo.';
+      estado.escanerActivo = false;
+      return;
+    }
+
+    $('escaner-estado').textContent = 'Buscando código…';
+    try {
+      const lector = new ZXing.BrowserMultiFormatReader();
+      const controles = await lector.decodeFromConstraints({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      }, $('escaner-video'), function (resultado) {
+        if (!resultado || !estado.escanerActivo) return;
+        const texto = resultado.getText ? resultado.getText() : String(resultado.text || '');
+        if (texto) procesarCodigoEscaner_(texto);
+      });
+
+      if (!estado.escanerActivo) {
+        try { controles.stop(); } catch (error) {}
+      } else {
+        estado.escanerControls = controles;
+      }
+    } catch (error) {
+      manejarErrorEscaner_(error);
+    }
+  }
+
+  function procesarCodigoEscaner_(codigo) {
+    const limpio = String(codigo || '').trim();
+    if (!limpio) return;
+    const callback = estado.escanerCallback;
+    $('escaner-estado').textContent = 'Código detectado: ' + limpio;
+    cerrarEscaner();
+    if (callback) {
+      Promise.resolve().then(function () {
+        return callback(limpio);
+      }).catch(function (error) {
+        window.alert(error.message || String(error));
+      });
+    }
+  }
+
+  function usarCodigoEscanerManual(evento) {
+    evento.preventDefault();
+    const codigo = $('escaner-codigo').value.trim();
+    if (!codigo) {
+      $('escaner-estado').textContent = 'Escribí un código o volvé a intentar con la cámara.';
+      return;
+    }
+    procesarCodigoEscaner_(codigo);
+  }
+
+  function cerrarEscaner() {
+    detenerEscaner_();
+    estado.escanerCallback = null;
+    ocultarDialogo_('dialogo-escaner');
+  }
+
+  function detenerEscaner_() {
+    estado.escanerActivo = false;
+    clearTimeout(estado.escanerTimer);
+    estado.escanerTimer = null;
+
+    if (estado.escanerControls) {
+      try { estado.escanerControls.stop(); } catch (error) {}
+      estado.escanerControls = null;
+    }
+    if (estado.escanerStream) {
+      detenerStream_(estado.escanerStream);
+      estado.escanerStream = null;
+    }
+
+    const video = $('escaner-video');
+    if (video) {
+      try { video.pause(); } catch (error) {}
+      video.srcObject = null;
+    }
+    estado.escanerDetector = null;
+  }
+
+  function detenerStream_(stream) {
+    if (!stream || !stream.getTracks) return;
+    stream.getTracks().forEach(function (track) {
+      try { track.stop(); } catch (error) {}
+    });
+  }
+
+  function esErrorPermisoCamara_(error) {
+    return error && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
+  }
+
+  function manejarErrorEscaner_(error) {
+    estado.escanerActivo = false;
+    let mensaje = 'No pude iniciar la cámara. Escribí el código abajo.';
+    if (error && error.name === 'NotAllowedError') {
+      mensaje = 'Permiso de cámara denegado. Escribí el código abajo o habilitalo en el navegador.';
+    } else if (error && error.name === 'NotFoundError') {
+      mensaje = 'No encontré una cámara disponible. Escribí el código abajo.';
+    } else if (error && error.name === 'NotReadableError') {
+      mensaje = 'La cámara está en uso. Cerrá otras apps y escribí el código abajo.';
+    }
+    $('escaner-estado').textContent = mensaje;
   }
 
   function abrirItemPresupuestoNuevo() {
@@ -3343,6 +4021,9 @@
     $('item-presupuesto-unidad').value = 'UN';
     $('item-presupuesto-precio').value = '0';
     $('item-presupuesto-mensaje').textContent = '';
+    estado.itemPresupuestoMaterial = null;
+    estado.itemPresupuestoSolicitud++;
+    actualizarVistaArticuloItemPresupuesto_();
     actualizarSubtotalItemPresupuesto();
     mostrarDialogo_('dialogo-item-presupuesto');
     setTimeout(function () { $('item-presupuesto-descripcion').focus(); }, 50);
@@ -3427,7 +4108,10 @@
       descripcion: $('item-presupuesto-descripcion').value.trim(),
       cantidad: Number($('item-presupuesto-cantidad').value),
       unidad: $('item-presupuesto-unidad').value,
-      precio_unitario: Number($('item-presupuesto-precio').value)
+      precio_unitario: Number($('item-presupuesto-precio').value),
+      material_id: estado.itemPresupuestoMaterial
+        ? estado.itemPresupuestoMaterial.material_id
+        : ''
     };
 
     if (!item.descripcion) {
@@ -5177,6 +5861,11 @@
     } catch (error) {
       return '$' + numero.toFixed(2);
     }
+  }
+
+  function dialogoAbierto_(id) {
+    const dialogo = $(id);
+    return !!dialogo && (!!dialogo.open || dialogo.hasAttribute('open'));
   }
 
   function mostrarDialogo_(id) {
