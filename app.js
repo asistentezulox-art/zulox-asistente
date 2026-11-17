@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.1';
+  const VERSION = '1.1.2';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -2422,7 +2422,8 @@
 
       const descripcion = document.createElement('span');
       descripcion.className = 'presupuesto-descripcion';
-      descripcion.textContent = presupuesto.descripcion || 'Sin descripción';
+      descripcion.textContent = presupuesto.descripcion_definitiva ||
+        presupuesto.descripcion || 'Sin descripción';
 
       const meta = document.createElement('span');
       meta.className = 'presupuesto-meta';
@@ -2430,6 +2431,9 @@
         tipoInstalacionLegible_(presupuesto.tipo_instalacion),
         'Solicitud ' + fechaCorta(presupuesto.fecha_solicitud)
       ];
+      if (Number(presupuesto.importe_adicional) > 0) {
+        partes.push('Adicional ' + monedaPresupuesto_(presupuesto.importe_adicional));
+      }
       if (presupuesto.fecha_seguimiento) {
         partes.push('Seguimiento ' + fechaCorta(presupuesto.fecha_seguimiento));
       }
@@ -2446,7 +2450,10 @@
 
       const total = document.createElement('span');
       total.className = 'presupuesto-total';
-      total.textContent = monedaPresupuesto_(presupuesto.total);
+      const totalDefinitivo = Number(presupuesto.total_definitivo);
+      total.textContent = monedaPresupuesto_(isFinite(totalDefinitivo)
+        ? totalDefinitivo
+        : presupuesto.total);
 
       tarjeta.appendChild(superior);
       tarjeta.appendChild(cliente);
@@ -2489,7 +2496,17 @@
     if (!datos || !datos.presupuesto) return;
     const presupuesto = datos.presupuesto;
     const items = datos.items || [];
+    const adicionales = datos.adicionales || [];
     const puedeEditar = ['PENDIENTE', 'ENVIADO'].indexOf(presupuesto.estado) !== -1;
+    const totalBase = Number(presupuesto.total_base !== undefined
+      ? presupuesto.total_base
+      : presupuesto.total) || 0;
+    const importeAdicional = Number(presupuesto.importe_adicional) || 0;
+    const totalDefinitivo = Number(presupuesto.total_definitivo);
+    const totalMostrar = isFinite(totalDefinitivo)
+      ? totalDefinitivo
+      : totalBase + importeAdicional;
+    const descripcionFinal = presupuesto.descripcion_definitiva || presupuesto.descripcion;
     estado.presupuestoActual = datos;
 
     const contenedor = $('presupuesto-detalle');
@@ -2520,11 +2537,18 @@
 
     const total = document.createElement('p');
     total.className = 'presupuesto-total-detalle';
-    total.textContent = monedaPresupuesto_(presupuesto.total) +
+    total.textContent = monedaPresupuesto_(totalMostrar) +
       (presupuesto.estado === 'ENVIADO' && presupuesto.fecha_vencimiento
         ? ' · Vence ' + fechaCorta(presupuesto.fecha_vencimiento)
         : '');
     contenedor.appendChild(total);
+    if (importeAdicional > 0) {
+      const desglose = document.createElement('p');
+      desglose.className = 'ayuda';
+      desglose.textContent = 'Base ' + monedaPresupuesto_(totalBase) +
+        ' + adicionales ' + monedaPresupuesto_(importeAdicional);
+      contenedor.appendChild(desglose);
+    }
 
     const campos = document.createElement('div');
     campos.className = 'detalle-campos';
@@ -2534,7 +2558,7 @@
     agregarCampoDirectorio_(campos, 'Dirección del trabajo',
       presupuesto.direccion_trabajo || presupuesto.cliente_direccion);
     agregarCampoDirectorio_(campos, 'Instalación', tipoInstalacionLegible_(presupuesto.tipo_instalacion));
-    agregarCampoDirectorio_(campos, 'Descripción', presupuesto.descripcion);
+    agregarCampoDirectorio_(campos, 'Descripción', descripcionFinal);
     agregarCampoDirectorio_(campos, 'Solicitud', fechaCorta(presupuesto.fecha_solicitud));
     agregarCampoDirectorio_(campos, 'Envío', fechaCorta(presupuesto.fecha_envio));
     agregarCampoDirectorio_(campos, 'Validez', presupuesto.validez_dias + ' días');
@@ -2592,7 +2616,8 @@
     const tieneItemsActivos = items.some(function (item) {
       return String(item.estado || '').toUpperCase() !== 'ANULADO';
     });
-    if (presupuesto.estado !== 'ANULADO' && tieneItemsActivos) {
+    const tieneContenido = tieneItemsActivos || totalMostrar > 0;
+    if (presupuesto.estado !== 'ANULADO' && tieneContenido) {
       agregarAccionPresupuesto_(acciones, 'PDF para cliente', 'btn-principal', function () {
         abrirPresupuestoPdf(datos);
       });
@@ -2624,6 +2649,19 @@
       contenedor.appendChild(listaItems);
     }
 
+    if (adicionales.length) {
+      const adicionalesTitulo = document.createElement('h3');
+      adicionalesTitulo.textContent = 'Adicionales';
+      contenedor.appendChild(adicionalesTitulo);
+
+      const listaAdicionales = document.createElement('div');
+      listaAdicionales.className = 'presupuesto-items';
+      adicionales.forEach(function (adicional) {
+        listaAdicionales.appendChild(crearLineaAdicionalTrabajo_(adicional, false));
+      });
+      contenedor.appendChild(listaAdicionales);
+    }
+
     const seguimientoTitulo = document.createElement('h3');
     seguimientoTitulo.textContent = 'Seguimiento';
     contenedor.appendChild(seguimientoTitulo);
@@ -2650,7 +2688,7 @@
       trabajo.className = 'presupuesto-trabajo';
       trabajo.textContent = datos.trabajo.trabajo_id + ' · ' +
         estadoActividadLegible_(datos.trabajo.estado) + ' · ' +
-        monedaPresupuesto_(datos.trabajo.importe_presupuestado);
+        monedaPresupuesto_(totalMostrar);
       contenedor.appendChild(trabajo);
     }
 
@@ -2836,19 +2874,25 @@
     const items = (datos.items || []).filter(function (item) {
       return String(item.estado || '').toUpperCase() !== 'ANULADO';
     });
-    const adicionales = (opcionesPdf.adicionales || []).filter(function (adicional) {
+    const adicionales = (opcionesPdf.adicionales || datos.adicionales || []).filter(function (adicional) {
       return String(adicional.estado || 'ACTIVO').toUpperCase() !== 'ANULADO';
     });
-    const totalBase = Number(presupuesto.total) || 0;
+    const totalBase = Number(presupuesto.total_base !== undefined
+      ? presupuesto.total_base
+      : presupuesto.total) || 0;
     const totalAdicionales = adicionales.reduce(function (total, adicional) {
       return total + (Number(adicional.importe) || 0);
     }, 0);
+    const totalDefinitivo = Number(presupuesto.total_definitivo);
     const totalGeneral = opcionesPdf.total !== undefined
       ? Number(opcionesPdf.total) || 0
-      : totalBase + totalAdicionales;
+      : (isFinite(totalDefinitivo) ? totalDefinitivo : totalBase + totalAdicionales);
     const actualizado = !!opcionesPdf.actualizado || adicionales.length > 0;
     const etiquetaDocumento = actualizado ? 'PRESUPUESTO ACTUALIZADO' : 'PRESUPUESTO';
     const nombreDocumento = actualizado ? 'Presupuesto actualizado' : 'Presupuesto';
+    const descripcionDocumento = presupuesto.descripcion_definitiva ||
+      presupuesto.descripcion;
+    const descripcionBase = presupuesto.descripcion_base || presupuesto.descripcion;
     const documento = $('presupuesto-pdf-documento');
     documento.innerHTML = '';
 
@@ -2901,11 +2945,11 @@
     }
     documento.appendChild(datosTrabajo);
 
-    if (presupuesto.descripcion) {
+    if (descripcionDocumento) {
       const seccionDescripcion = crearElementoPdf_('section', 'pdf-seccion');
       seccionDescripcion.appendChild(crearElementoPdf_('h2', null, 'Descripción del trabajo'));
       seccionDescripcion.appendChild(crearElementoPdf_('p', 'pdf-descripcion',
-        presupuesto.descripcion));
+        descripcionDocumento));
       documento.appendChild(seccionDescripcion);
     }
 
@@ -2946,7 +2990,7 @@
       const fila = document.createElement('tr');
       const descripcion = document.createElement('td');
       descripcion.setAttribute('colspan', '4');
-      descripcion.textContent = presupuesto.descripcion || 'Trabajo según descripción';
+      descripcion.textContent = descripcionBase || 'Trabajo según descripción';
       fila.appendChild(descripcion);
       fila.appendChild(crearElementoPdf_('td', 'num', monedaPresupuesto_(totalBase)));
       tbody.appendChild(fila);
