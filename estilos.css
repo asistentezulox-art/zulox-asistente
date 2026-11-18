@@ -1536,6 +1536,76 @@ body.pdf-abierto {
   text-align: right;
 }
 
+.pdf-recibo-caja {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 20px;
+  padding: 18px 20px;
+  border: 2px solid #0b1f3a;
+  border-radius: 10px;
+  background: #f2f7fc;
+}
+
+.pdf-recibo-caja-texto span {
+  display: block;
+  color: #52647a;
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.pdf-recibo-caja-texto small {
+  display: block;
+  margin-top: 3px;
+  color: #52647a;
+  font-size: 11px;
+}
+
+.pdf-recibo-caja strong {
+  color: #0b1f3a;
+  font-size: 30px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.pdf-recibo-resumen {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pdf-recibo-resumen-item {
+  padding: 12px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.pdf-recibo-resumen-item span {
+  display: block;
+  color: #6b7c94;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pdf-recibo-resumen-item strong {
+  display: block;
+  margin-top: 4px;
+  color: #1d3048;
+  font-size: 16px;
+}
+
+.pdf-recibo-resumen-item.pendiente strong {
+  color: #a33a2b;
+}
+
+.pdf-recibo-resumen-item.ok strong {
+  color: #1f6b4a;
+}
+
 .pdf-nota {
   margin: 16px 0 0;
   color: #6b7c94;
@@ -1574,6 +1644,13 @@ body.pdf-abierto {
   .pdf-cabecera { gap: 12px; }
   .pdf-datos { grid-template-columns: 1fr; }
   .pdf-dato-etiqueta { flex-basis: 104px; }
+  .pdf-recibo-caja {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .pdf-recibo-caja strong { font-size: 24px; }
+  .pdf-recibo-resumen { grid-template-columns: 1fr; }
 }
 
 @media print {
@@ -1604,7 +1681,9 @@ body.pdf-abierto {
   .pdf-tabla thead { display: table-header-group; }
   .pdf-tabla tr { break-inside: avoid; page-break-inside: avoid; }
   .pdf-seccion,
-  .pdf-total { break-inside: avoid; page-break-inside: avoid; }
+  .pdf-total,
+  .pdf-recibo-caja,
+  .pdf-recibo-resumen { break-inside: avoid; page-break-inside: avoid; }
 }
 
 /* Economía */

@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.2.1';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
@@ -3190,6 +3190,13 @@
     }
   }
 
+  function prepararPdfBarra_(titulo, ayuda) {
+    const tituloNodo = $('pdf-barra-titulo');
+    const ayudaNodo = $('pdf-barra-ayuda');
+    if (tituloNodo) tituloNodo.textContent = titulo;
+    if (ayudaNodo) ayudaNodo.textContent = ayuda;
+  }
+
   async function abrirPdfTrabajoActual(boton) {
     const datos = estado.trabajoActual;
     if (!datos || !datos.trabajo || !datos.trabajo.presupuesto_id) return;
@@ -3415,6 +3422,9 @@
       presupuesto.presupuesto_id || 'Presupuesto'));
     documento.appendChild(pie);
 
+    prepararPdfBarra_('Vista para enviar',
+      'Tocá "Imprimir / Guardar PDF" y elegí "Guardar como PDF".');
+
     const overlay = $('presupuesto-pdf');
     overlay.classList.remove('oculto');
     overlay.setAttribute('aria-hidden', 'false');
@@ -3442,6 +3452,166 @@
     overlay.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('pdf-abierto');
     $('presupuesto-pdf-documento').innerHTML = '';
+  }
+
+  async function abrirReciboPago_(movimiento, boton) {
+    if (!movimiento || !movimiento.movimiento_id || !movimiento.trabajo_id) return;
+    if (String(movimiento.estado || '').toUpperCase() !== 'COBRADO') {
+      window.alert('El recibo se genera cuando el cobro está cobrado.');
+      return;
+    }
+
+    const textoAnterior = boton ? boton.textContent : '';
+    if (boton) {
+      boton.disabled = true;
+      boton.textContent = 'Preparando...';
+    }
+
+    try {
+      const datos = await api('economia.trabajo', {
+        trabajo_id: movimiento.trabajo_id
+      });
+      if (!datos || !datos.trabajo) {
+        throw new Error('No se encontró el trabajo del pago.');
+      }
+      abrirReciboPagoPdf_(movimiento, datos.trabajo, datos.movimientos || []);
+    } catch (error) {
+      if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
+        manejarError(error);
+      } else {
+        window.alert(error.message);
+      }
+    } finally {
+      if (boton) {
+        boton.disabled = false;
+        boton.textContent = textoAnterior;
+      }
+    }
+  }
+
+  function abrirReciboPagoPdf_(movimiento, trabajo, movimientos) {
+    const documento = $('presupuesto-pdf-documento');
+    documento.innerHTML = '';
+
+    const cliente = movimiento.cliente_nombre || trabajo.cliente_nombre || 'Cliente';
+    const trabajoId = movimiento.trabajo_id || trabajo.trabajo_id || '';
+    const descripcion = movimiento.trabajo_descripcion ||
+      trabajo.descripcion || 'Cobro de trabajo';
+    const fechaPago = movimiento.fecha || trabajo.fecha_fin || trabajo.fecha_alta;
+    const importe = Number(movimiento.importe) || 0;
+    const presupuestado = Number(trabajo.presupuestado) || 0;
+
+    const pagos = (movimientos || []).filter(function (pago) {
+      return String(pago.tipo || '').toUpperCase() === 'INGRESO' &&
+        String(pago.categoria || '').toUpperCase() === 'COBRO_CLIENTE' &&
+        String(pago.estado || '').toUpperCase() === 'COBRADO';
+    }).sort(function (a, b) {
+      if (a.fecha !== b.fecha) return String(a.fecha).localeCompare(String(b.fecha));
+      return String(a.movimiento_id).localeCompare(String(b.movimiento_id));
+    });
+
+    let cobradoHasta = 0;
+    let encontrado = false;
+    pagos.forEach(function (pago) {
+      if (encontrado) return;
+      cobradoHasta += Number(pago.importe) || 0;
+      if (String(pago.movimiento_id) === String(movimiento.movimiento_id)) {
+        encontrado = true;
+      }
+    });
+    if (!encontrado) cobradoHasta = Number(trabajo.cobrado) || 0;
+
+    const cobradoAntes = Math.max(0, cobradoHasta - importe);
+    const saldoDespues = Math.max(0, presupuestado - cobradoHasta);
+
+    documento.setAttribute('data-nombre',
+      'Recibo ' + (movimiento.movimiento_id || '') + ' - ' + cliente);
+
+    const cabecera = crearElementoPdf_('div', 'pdf-cabecera');
+    const marca = crearElementoPdf_('div', 'pdf-marca');
+    const logo = crearElementoPdf_('img', 'pdf-logo');
+    logo.src = 'logo-zulox.jpg';
+    logo.alt = 'ZULOX - Electricidad y agua';
+    marca.appendChild(logo);
+    const datosMarca = crearElementoPdf_('div', 'pdf-marca-datos');
+    datosMarca.appendChild(crearElementoPdf_('span', 'pdf-marca-contacto', 'Tel: 2617752029'));
+    datosMarca.appendChild(crearElementoPdf_('span', 'pdf-marca-contacto', 'Web: www.zulox.com.ar'));
+    marca.appendChild(datosMarca);
+    const numero = crearElementoPdf_('div', 'pdf-numero');
+    numero.appendChild(crearElementoPdf_('span', null, 'RECIBO DE PAGO'));
+    numero.appendChild(crearElementoPdf_('strong', null, movimiento.movimiento_id || ''));
+    numero.appendChild(crearElementoPdf_('small', null,
+      fechaPago ? 'Fecha de pago: ' + fechaCorta(fechaPago) : ''));
+    cabecera.appendChild(marca);
+    cabecera.appendChild(numero);
+    documento.appendChild(cabecera);
+
+    const destinatario = crearElementoPdf_('div', 'pdf-destinatario');
+    destinatario.appendChild(crearElementoPdf_('span', null, 'Recibo de pago para'));
+    destinatario.appendChild(crearElementoPdf_('h1', null, cliente));
+    destinatario.appendChild(crearElementoPdf_('p', null,
+      (trabajoId ? trabajoId + ' - ' : '') + descripcion));
+    documento.appendChild(destinatario);
+
+    const cajaImporte = crearElementoPdf_('div', 'pdf-recibo-caja');
+    const textoImporte = crearElementoPdf_('div', 'pdf-recibo-caja-texto');
+    textoImporte.appendChild(crearElementoPdf_('span', null, 'Importe recibido'));
+    textoImporte.appendChild(crearElementoPdf_('small', null,
+      'Pago confirmado' +
+      (movimiento.medio_pago ? ' - ' + medioPagoLegible_(movimiento.medio_pago) : '')));
+    cajaImporte.appendChild(textoImporte);
+    cajaImporte.appendChild(crearElementoPdf_('strong', null,
+      monedaPresupuesto_(importe)));
+    documento.appendChild(cajaImporte);
+
+    const datos = crearElementoPdf_('div', 'pdf-datos');
+    agregarDatoPdf_(datos, 'Trabajo', trabajoId);
+    agregarDatoPdf_(datos, 'Concepto', descripcion);
+    agregarDatoPdf_(datos, 'Fecha de pago', fechaCorta(fechaPago));
+    agregarDatoPdf_(datos, 'Medio de pago', medioPagoLegible_(movimiento.medio_pago));
+    agregarDatoPdf_(datos, 'Detalle', movimiento.descripcion);
+    agregarDatoPdf_(datos, 'Comprobante', movimiento.comprobante);
+    documento.appendChild(datos);
+
+    const seccionResumen = crearElementoPdf_('section', 'pdf-seccion');
+    seccionResumen.appendChild(crearElementoPdf_('h2', null, 'Resumen del trabajo'));
+    const resumen = crearElementoPdf_('div', 'pdf-recibo-resumen');
+    [
+      { etiqueta: 'Presupuestado', valor: presupuestado, clase: '' },
+      { etiqueta: 'Cobrado antes del pago', valor: cobradoAntes, clase: '' },
+      {
+        etiqueta: 'Saldo luego del pago',
+        valor: saldoDespues,
+        clase: saldoDespues > 0 ? 'pendiente' : 'ok'
+      }
+    ].forEach(function (dato) {
+      const bloque = crearElementoPdf_('div',
+        'pdf-recibo-resumen-item ' + (dato.clase || ''));
+      bloque.appendChild(crearElementoPdf_('span', null, dato.etiqueta));
+      bloque.appendChild(crearElementoPdf_('strong', null,
+        monedaPresupuesto_(dato.valor)));
+      resumen.appendChild(bloque);
+    });
+    seccionResumen.appendChild(resumen);
+    documento.appendChild(seccionResumen);
+
+    documento.appendChild(crearElementoPdf_('p', 'pdf-nota',
+      'Recibo interno de pago. No reemplaza factura.'));
+
+    const pie = crearElementoPdf_('div', 'pdf-pie');
+    pie.appendChild(crearElementoPdf_('span', null, 'ZULOX'));
+    pie.appendChild(crearElementoPdf_('span', null,
+      movimiento.movimiento_id || 'Recibo'));
+    documento.appendChild(pie);
+
+    prepararPdfBarra_('Recibo de pago',
+      'Tocá "Imprimir / Guardar PDF" para entregar el recibo al cliente.');
+
+    const overlay = $('presupuesto-pdf');
+    overlay.classList.remove('oculto');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('pdf-abierto');
+    $('btn-presupuesto-pdf-imprimir').focus();
   }
 
   async function abrirFormularioPresupuesto(presupuesto) {
@@ -5407,6 +5577,21 @@
       const acciones = document.createElement('div');
       acciones.className = 'economia-acciones';
 
+      const esCobroConfirmado = String(movimiento.tipo || '').toUpperCase() === 'INGRESO' &&
+        String(movimiento.categoria || '').toUpperCase() === 'COBRO_CLIENTE' &&
+        String(movimiento.estado || '').toUpperCase() === 'COBRADO' &&
+        !!movimiento.trabajo_id;
+      if (esCobroConfirmado) {
+        const recibo = document.createElement('button');
+        recibo.type = 'button';
+        recibo.className = 'btn-secundario';
+        recibo.textContent = 'Recibo PDF';
+        recibo.addEventListener('click', function () {
+          abrirReciboPago_(movimiento, recibo);
+        });
+        acciones.appendChild(recibo);
+      }
+
       if (puedeEscribir() &&
           String(movimiento.estado || '').toUpperCase() === 'PENDIENTE') {
         const marcar = document.createElement('button');
@@ -5531,7 +5716,7 @@
     if (!estado.cobroIdempotencia) estado.cobroIdempotencia = nuevaClave();
 
     try {
-      await api('economia.movimiento.crear', {
+      const movimiento = await api('economia.movimiento.crear', {
         tipo: 'INGRESO',
         categoria: 'COBRO_CLIENTE',
         trabajo_id: trabajoId,
@@ -5553,6 +5738,9 @@
       $('economia-mensaje').classList.add('ok');
       mensaje.textContent = textoExito;
       mensaje.classList.add('ok');
+      if (estadoMovimiento === 'COBRADO' && movimiento) {
+        abrirReciboPago_(movimiento);
+      }
     } catch (error) {
       mensaje.classList.remove('ok');
       if (error.codigo === 'SESION_INVALIDA' || error.codigo === 'SESION_VENCIDA') {
