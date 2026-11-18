@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.2.1';
+  const VERSION = '1.2.2';
   const CLAVE_API = 'zulox.api';
   const CLAVE_TOKEN = 'zulox.token';
   const CLAVE_USUARIO = 'zulox.usuario';
